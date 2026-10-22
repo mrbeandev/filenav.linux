@@ -455,6 +455,9 @@ function passwordField(attrs = {}) {
   return { el: h('div', { class: 'pw-wrap' }, input, btn), input };
 }
 
+// replaceChildren() prints null/false as text, so drop those first
+const setMain = (...kids) => $('#main').replaceChildren(...kids.flat().filter(k => k != null && k !== false));
+
 const joinPath = (a, b) => (a ? a + '/' : '') + b;
 const encPath = p => encodeURIComponent(p);
 
@@ -620,9 +623,15 @@ function openViewer(o) {
         const img = h('img', { src: blobURL, alt: o.name, onclick: () => img.classList.toggle('zoom') });
         body.replaceChildren(h('div', { class: 'preview' }, img));
       } else if (kind === 'vid') {
-        const v = h('video', { src: o.raw, controls: true, autoplay: true, playsinline: true, preload: 'metadata' });
-        v.addEventListener('error', () => noPreview('Your browser can\u2019t play this video\u2019s format or codec (common with AVI, WMV, and some MKV/HEVC files). Download it and play it in VLC or mpv.'));
-        body.replaceChildren(h('div', { class: 'preview' }, v));
+        const box = h('div', { class: 'preview' });
+        body.replaceChildren(box);
+        if (o.rel && typeof mountPlayer === 'function') {
+          mountPlayer(box, o.rel, { onInfo: (info) => { if (info) langLabel.textContent = formatLabel(info); } });
+        } else {
+          const v = h('video', { src: o.raw, controls: true, autoplay: true, playsinline: true, preload: 'metadata' });
+          v.addEventListener('error', () => noPreview('Your browser can\u2019t play this video\u2019s format. Download it and play it in VLC or mpv.'));
+          box.append(v);
+        }
       } else if (kind === 'aud') {
         const a = h('audio', { src: o.raw, controls: true, autoplay: true });
         a.addEventListener('error', () => noPreview('Your browser can\u2019t play this audio format.'));

@@ -274,6 +274,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"read_only":     s.cfg.ReadOnly,
 		"shares_on":     s.cfg.Shares,
 		"analyzer_on":   s.cfg.Analyzer,
+		"movies_on":     s.cfg.Movies,
 		"share_uploads": s.cfg.ShareUploads,
 		"max_upload":    s.cfg.MaxUploadMB << 20,
 		"authed":        s.authed(r),

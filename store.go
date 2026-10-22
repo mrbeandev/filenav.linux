@@ -21,6 +21,7 @@ type State struct {
 	Sessions     map[string]*Session `json:"sessions"`    // key: sha256(token) hex
 	Passkeys     []*Passkey          `json:"passkeys"`
 	Shares       map[string]*Share   `json:"shares"`
+	Media        MediaSettings       `json:"media"`
 }
 
 type Session struct {

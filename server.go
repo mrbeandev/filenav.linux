@@ -27,6 +27,7 @@ type Server struct {
 	shareLimit *limiter
 	challenges *challengeStore
 	analyzer   *Analyzer
+	movies     *MovieLib
 
 	upMu    sync.Mutex
 	uploads map[string]*uploadMeta
@@ -47,6 +48,7 @@ func NewServer(cfg Config, absRoot string, root *os.Root, st *Store, web fs.FS) 
 	if cfg.Analyzer {
 		s.analyzer = NewAnalyzer(absRoot, cfg.Data)
 	}
+	s.movies = NewMovieLib(s)
 	s.routes()
 	return s
 }
@@ -97,6 +99,23 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/disk", a(s.handleDisk))
 	m.HandleFunc("GET /api/analyze", a(requireFeature(s.cfg.Analyzer, "the storage analyzer is disabled in the config", s.handleAnalyze)))
 	m.HandleFunc("POST /api/analyze/rescan", a(requireFeature(s.cfg.Analyzer, "the storage analyzer is disabled in the config", s.handleAnalyzeRescan)))
+	mv := func(h http.HandlerFunc) http.HandlerFunc {
+		return requireFeature(s.cfg.Movies, "the movie library is disabled in the config", h)
+	}
+	m.HandleFunc("GET /api/movies", a(mv(s.handleMovies)))
+	m.HandleFunc("POST /api/movies/scan", wr(mv(s.handleMoviesScan)))
+	m.HandleFunc("POST /api/movies/apply", wr(mv(s.handleMoviesApply)))
+	m.HandleFunc("POST /api/movies/cancel", a(mv(s.handleMoviesCancel)))
+	m.HandleFunc("GET /api/movies/search", a(mv(s.handleMoviesSearch)))
+	m.HandleFunc("POST /api/movies/match", a(mv(s.handleMoviesMatch)))
+	m.HandleFunc("POST /api/movies/subs", wr(mv(s.handleMovieSubs)))
+	m.HandleFunc("GET /api/movies/settings", a(mv(s.handleMediaSettingsGet)))
+	m.HandleFunc("PUT /api/movies/settings", a(mv(s.handleMediaSettingsPut)))
+	m.HandleFunc("POST /api/movies/test", a(mv(s.handleMediaTest)))
+	m.HandleFunc("GET /api/tmdb-img", a(mv(s.handleTMDBImage)))
+	m.HandleFunc("GET /api/vtt", a(s.handleSubVTT))
+	m.HandleFunc("GET /api/media/probe", a(s.handleMediaProbe))
+	m.HandleFunc("GET /api/media/stream", a(s.handleMediaStream))
 	m.HandleFunc("POST /api/analyze/cancel", a(requireFeature(s.cfg.Analyzer, "the storage analyzer is disabled in the config", s.handleAnalyzeCancel)))
 	m.HandleFunc("POST /api/upload/init", wr(s.handleUploadInit))
 	m.HandleFunc("PUT /api/upload/{uid}", wr(s.handleUploadChunk))

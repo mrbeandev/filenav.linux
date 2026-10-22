@@ -42,6 +42,7 @@ type Config struct {
 	Shares       bool
 	ShareUploads bool
 	Analyzer     bool
+	Movies       bool
 
 	// derived
 	Addr       string
@@ -65,6 +66,7 @@ func defaultConfig() Config {
 		Shares:       true,
 		ShareUploads: true,
 		Analyzer:     true,
+		Movies:       true,
 	}
 }
 
@@ -150,6 +152,7 @@ func (c *Config) setters() map[string]func(string) error {
 		"shares":        boolean(&c.Shares),
 		"share_uploads": boolean(&c.ShareUploads),
 		"analyzer":      boolean(&c.Analyzer),
+		"movies":        boolean(&c.Movies),
 	}
 }
 
@@ -246,7 +249,7 @@ var envKeys = map[string]string{
 	"FILENAV_TLS_KEY": "tls_key", "FILENAV_AUTH": "auth", "FILENAV_PASSKEYS": "passkeys",
 	"FILENAV_PASSCODE": "passcode", "FILENAV_READ_ONLY": "read_only", "FILENAV_SHOW_HIDDEN": "show_hidden",
 	"FILENAV_SESSION_DAYS": "session_days", "FILENAV_SHARES": "shares", "FILENAV_SHARE_UPLOADS": "share_uploads",
-	"FILENAV_ANALYZER": "analyzer",
+	"FILENAV_ANALYZER": "analyzer", "FILENAV_MOVIES": "movies",
 }
 
 func (c *Config) applyEnv() error {
@@ -467,6 +470,9 @@ func renderConfig(c Config) []byte {
 	w("# --- Storage analyzer ---\n")
 	w("# Keeps a cached index of folder sizes, updated live (inotify) and checked on startup\n")
 	w("analyzer: %t\n\n", c.Analyzer)
+	w("# --- Movie library ---\n")
+	w("# Movies section (posters, subtitles, auto-organising). API keys are set in Settings.\n")
+	w("movies: %t\n\n", c.Movies)
 	w("# --- HTTPS without a reverse proxy (optional) ---\n")
 	w("tls_cert: %s\n", yamlQuote(c.TLSCert))
 	w("tls_key: %s\n", yamlQuote(c.TLSKey))
@@ -484,7 +490,7 @@ func writeConfigFile(path string, c Config) error {
 			"trust_proxy": c.TrustProxy, "title": c.Title, "auth": c.Auth, "passkeys": c.Passkeys,
 			"passcode": c.Passcode, "session_days": c.SessionDays, "read_only": c.ReadOnly,
 			"show_hidden": c.ShowHidden, "max_upload_mb": c.MaxUploadMB, "chunk_mb": c.ChunkMB,
-			"shares": c.Shares, "share_uploads": c.ShareUploads, "analyzer": c.Analyzer, "tls_cert": c.TLSCert, "tls_key": c.TLSKey,
+			"shares": c.Shares, "share_uploads": c.ShareUploads, "analyzer": c.Analyzer, "movies": c.Movies, "tls_cert": c.TLSCert, "tls_key": c.TLSKey,
 		}
 		data, _ = json.MarshalIndent(m, "", "  ")
 		data = append(data, '\n')

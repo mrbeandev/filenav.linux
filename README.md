@@ -20,6 +20,8 @@ It uses **~8 MB of RAM when idle**, so it's a good fit for small VPSes and Raspb
 - **Passkeys** (Face ID / fingerprint / Windows Hello / security keys), with a passcode as fallback
 - **Code editor** (CodeMirror, 100+ languages) for any text file; Markdown rendering
 - **Previews** for images (including HEIC and TIFF), video, audio and PDF
+- **Movies library**: drop videos in a folder, press Scan: posters, details and English subtitles, organised as `Title (Year)/` (TMDB + OpenSubtitles, your own free API keys)
+- **Plays almost any video**: unsupported formats (HEVC, AC3/DTS audio, AVI…) are converted on the fly when `ffmpeg` is installed
 - **Installable app (PWA)** with a mobile-friendly UI, dark and light themes
 - **One-command service**: `filenav setup` installs it as a systemd service; `filenav update` keeps it current
 
@@ -96,6 +98,7 @@ chunk_mb: 16                        # upload chunk size (keep < 100 behind Cloud
 shares: true                        # public share links
 share_uploads: true                 # share links that accept uploads
 analyzer: true                      # storage analyzer (cached folder sizes, updated live)
+movies: true                        # Movies section (API keys are set in Settings → Movies)
 
 tls_cert: ""                        # serve HTTPS directly (optional)
 tls_key: ""

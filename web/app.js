@@ -92,6 +92,7 @@ function startApp() {
       h('a', { class: 'brand', href: '#/', onclick: e => { e.preventDefault(); goFiles(); } }, iconEl('logo', 'logo'), h('span', {}, S.me.title)),
       h('div', { class: 'side-h' }, 'Library'),
       nav('files', 'folder', 'Files', goFiles),
+      S.me.movies_on ? nav('movies', 'vid', 'Movies', () => { location.hash = '#movies'; }) : null,
       S.me.analyzer_on ? nav('storage', 'chart', 'Storage', goStorage) : null,
       S.me.shares_on ? nav('shares', 'link', 'Shared Links', showShares) : null,
       h('div', { class: 'side-h' }, 'Account'),
@@ -108,6 +109,7 @@ function startApp() {
       h('div', { id: 'selbar', class: 'selbar hidden' })),
     h('nav', { class: 'tabbar' },
       tab('files', 'folder', 'Files', goFiles),
+      S.me.movies_on ? tab('movies', 'vid', 'Movies', () => { location.hash = '#movies'; }) : null,
       S.me.analyzer_on ? tab('storage', 'chart', 'Storage', goStorage) : null,
       S.me.shares_on ? tab('shares', 'link', 'Shared', showShares) : null,
       S.me.auth ? tab('settings', 'gear', 'Settings', showSettings) : null)));
@@ -131,11 +133,12 @@ function startApp() {
 // hash routes: #/<path> = files, #storage[/<path>] = storage analyzer
 function route() {
   const hsh = location.hash;
-  const view = hsh.startsWith('#storage') ? 'storage' : 'files';
+  const view = hsh.startsWith('#storage') ? 'storage' : hsh.startsWith('#movies') ? 'movies' : 'files';
   S.view = view;
   $$('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   $('#navbar').classList.remove('scrolled');
   $('#main').scrollTop = 0;
+  if (view === 'movies') { S.sel.clear(); S.clipboard = null; renderSelbar(); return showMovies(hsh.replace(/^#movies\/?/, '')); }
   if (view === 'storage') { S.sel.clear(); S.clipboard = null; renderSelbar(); return showStorage(decodeURIComponent(hsh.replace(/^#storage\/?/, ''))); }
   const p = pathFromHash();
   if (p !== S.path || !S.loaded) { S.search = null; if (S.searchInput) S.searchInput.value = ''; }
@@ -146,6 +149,7 @@ const pathFromHash = () => decodeURIComponent(location.hash.replace(/^#\/?/, '')
 function go(p) { location.hash = '#/' + p.split('/').map(encodeURIComponent).join('/'); }
 
 async function load(keepSel) {
+  if (S.view === 'movies') return;
   if (S.view === 'storage') { setTimeout(route, 900); return; } // analyzer applies changes within ~1 s
   S.path = pathFromHash();
   if (!keepSel) S.sel.clear();
@@ -223,7 +227,7 @@ function render() {
   const head = [crumbs, h('h1', { class: 'large-title' }, title)];
   const search = h('div', { class: 'searchbar' }, iconEl('search'), S.searchInput);
   if (S.search) {
-    main.replaceChildren(...head, search, renderSearch());
+    setMain(...head, search, renderSearch());
     renderCrumbs();
     return;
   }
@@ -237,7 +241,7 @@ function render() {
   const nd = list.filter(e => e.dir).length, nf = list.length - nd;
   const sub = h('p', { class: 'subtitle' }, [nd ? `${nd} folder${nd > 1 ? 's' : ''}` : '', nf ? `${nf} file${nf > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ') || 'Empty folder');
   if (!list.length) {
-    main.replaceChildren(...head, sub, h('div', { class: 'empty', html: icon('folder') + '<p>This folder is empty.<br>Drop files here or tap Upload.</p>' }));
+    setMain(...head, sub, h('div', { class: 'empty', html: icon('folder') + '<p>This folder is empty.<br>Drop files here or tap Upload.</p>' }));
     renderCrumbs();
     return;
   }
@@ -245,7 +249,7 @@ function render() {
   const allSel = list.every(e => S.sel.has(e.name));
   const sortBtn = (key, label) => h('button', { class: S.sort.key === key ? 'on' : null, onclick: () => { S.sort = { key, dir: S.sort.key === key ? -S.sort.dir : (key === 'name' ? 1 : -1) }; render(); } },
     label + (S.sort.key === key ? (S.sort.dir > 0 ? ' ↑' : ' ↓') : ''));
-  main.replaceChildren(...head, sub, search,
+  setMain(...head, sub, search,
     h('div', { class: 'group-h' },
       h('input', { type: 'checkbox', class: 'sel-circle', title: 'Select all', checked: allSel, onclick: e => { list.forEach(x => e.target.checked ? S.sel.add(x.name) : S.sel.delete(x.name)); render(); } }),
       h('span', { class: 'grow' }), 'Sort:', sortBtn('name', 'Name'), sortBtn('size', 'Size'), sortBtn('mtime', 'Date')),
@@ -355,7 +359,7 @@ async function showStorage(rel) {
   }
   const head = [crumbs, h('h1', { class: 'large-title' }, title)];
   if (d.size == null) {
-    main.replaceChildren(...head, h('div', { class: 'stor-hero' }, h('div', { style: { gridColumn: '1 / -1' } },
+    setMain(...head, h('div', { class: 'stor-hero' }, h('div', { style: { gridColumn: '1 / -1' } },
       h('p', {}, d.scanning ? `Indexing your files… ${d.progress.toLocaleString()} folders so far` : 'Not indexed yet.'), h('div', { class: 'progress-line' }))));
     storTimer = setTimeout(() => showStorage(rel), 800);
     return;
@@ -407,7 +411,7 @@ async function showStorage(rel) {
       h('div', { class: 'txt' }, h('span', { class: 't1' }, name), h('span', { class: 't2' }, '/' + dir)),
       h('span', { class: 'size' }, fmtSize(l.size)));
   });
-  main.replaceChildren(...head,
+  setMain(...head,
     h('div', { class: 'stor-hero' }, ring, legend, meta),
     entries.length ? h('div', { class: 'group-h' }, 'By size') : null,
     entries.length ? h('div', { class: 'group' }, entries) : h('div', { class: 'empty', html: icon('folder') + '<p>Nothing here.</p>' }),
@@ -450,7 +454,7 @@ function viewerOpts(e, full, list) {
   const files = list || S.entries.filter(x => !x.dir).map(x => ({ e: x, full: joinPath(S.path, x.name) }));
   const index = Math.max(0, files.findIndex(f => f.full === full));
   return {
-    name: e.name, size: e.size, raw: dlURL(full, true), dl: dlURL(full), text: '/api/text?path=' + encPath(full),
+    name: e.name, size: e.size, rel: full, raw: dlURL(full, true), dl: dlURL(full), text: '/api/text?path=' + encPath(full),
     save: S.me.read_only ? null : content => api('PUT', '/api/text', { path: full, content }).then(r => { load(true); return r; }),
     resolve: (rel, isImg) => dlURL(resolveRel(dir, rel), isImg),
     count: files.length, index,
@@ -677,77 +681,146 @@ function uaLabel(ua) {
   return os ? `${b} on ${os}` : b;
 }
 
-async function showSettings() {
-  const pkList = h('div', { class: 'list' });
-  const sessList = h('div', { class: 'list' });
-  const pkOnly = h('input', { type: 'checkbox' });
-  const section = (title, desc, ...kids) => h('section', { class: 'set-card' }, h('h4', {}, title), desc ? h('p', { class: 'small dim' }, desc) : null, ...kids);
+// ---------- settings (iOS-style: segmented tabs, inset grouped rows) ----------
+const grp = (title, rows, foot) => h('section', { class: 'sg' },
+  title ? h('div', { class: 'sg-h' }, title) : null,
+  h('div', { class: 'sg-box' }, rows.filter(Boolean)),
+  foot ? h('div', { class: 'sg-f' }, foot) : null);
+const srow = (label, control, opts = {}) => h(opts.tag || 'div', { class: 'sg-row' + (opts.stack ? ' stack' : '') + (opts.cls ? ' ' + opts.cls : ''), onclick: opts.onclick },
+  opts.icon ? h('span', { class: 'sg-ic', style: { background: opts.color || 'var(--acc)' }, html: icon(opts.icon) }) : null,
+  h('div', { class: 'sg-l' }, h('span', {}, label), opts.sub ? h('small', {}, opts.sub) : null),
+  control || null);
+const banner = (kind, text, extra) => h('div', { class: 'banner ' + kind }, h('span', { class: 'bi', html: icon(kind === 'ok' ? 'check' : kind === 'warn' ? 'x' : 'eye') }), h('div', {}, text, extra || null));
+
+async function showSettings(focus) {
+  const tabs = [{ id: 'general', label: 'General' }];
+  if (S.me.movies_on) tabs.push({ id: 'movies', label: 'Movies' });
+  let current = focus === 'movies' && S.me.movies_on ? 'movies' : 'general';
+  const seg = h('div', { class: 'seg seg-full' });
+  const body = h('div', { class: 'settings' });
+  const draw = () => {
+    seg.replaceChildren(...tabs.map(t => h('button', { class: t.id === current ? 'on' : null, onclick: () => { current = t.id; draw(); } }, t.label)));
+    body.replaceChildren(current === 'movies' ? movieSettings() : generalSettings());
+  };
+  draw();
+  modal('Settings', [tabs.length > 1 ? seg : null, body], { cls: 'wide settings-modal', onClose: () => { if (S.view === 'movies') route(); } });
+}
+
+function generalSettings() {
+  const pkList = h('div', { class: 'sg-box' });
+  const sessList = h('div', { class: 'sg-box' });
+  const pkOnly = h('input', { type: 'checkbox', 'aria-label': 'Passkey only' });
   const drawPk = async () => {
     const d = await api('GET', '/api/passkeys');
     S.me = await api('GET', '/api/me');
     pkOnly.checked = S.me.passkey_only;
     pkOnly.disabled = !d.passkeys.length;
-    pkList.replaceChildren(...(d.passkeys.length ? d.passkeys.map(p => h('div', { class: 'item' }, iconEl('key'),
-      h('div', { class: 'main' }, h('div', {}, h('span', { class: 't' }, p.name)), h('div', { class: 'small dim' }, 'Added ' + fmtDate(p.created) + (new Date(p.last_used).getFullYear() > 1971 ? ' · used ' + fmtDate(p.last_used) : ''))),
-      h('button', { class: 'btn ghost danger', title: 'Remove', html: icon('trash'), onclick: async () => {
+    pkList.replaceChildren(
+      ...d.passkeys.map(p => srow(p.name, h('button', { class: 'btn ghost danger sm', title: 'Remove', html: icon('trash'), onclick: async () => {
         if (!await confirm2('Remove passkey', `Remove “${p.name}”?`, 'Remove')) return;
         await api('DELETE', '/api/passkeys/' + p.id); drawPk();
-      } }))) : [h('div', { class: 'small dim' }, 'No passkeys yet.')]));
+      } }), { icon: 'key', color: 'var(--indigo)', sub: 'Added ' + fmtDate(p.created) + (new Date(p.last_used).getFullYear() > 1971 ? ' · used ' + fmtDate(p.last_used) : '') })),
+      srow(h('span', { class: 'link' }, 'Add Passkey'), null, { icon: 'plus', color: 'var(--green)', cls: 'tap', onclick: addPk }),
+      h('label', { class: 'sg-row' }, h('div', { class: 'sg-l' }, h('span', {}, 'Passkey only'), h('small', {}, 'Turns off the passcode fallback')), h('span', { class: 'chk' }, pkOnly)));
   };
   const drawSess = async () => {
     const d = await api('GET', '/api/sessions');
-    sessList.replaceChildren(...d.sessions.sort((a, b) => b.current - a.current || new Date(b.created) - new Date(a.created)).map(s => h('div', { class: 'item' },
-      iconEl(s.current ? 'check' : 'lock'),
-      h('div', { class: 'main' },
-        h('div', { title: s.ua }, h('span', { class: 't' }, uaLabel(s.ua)), s.current ? h('span', { class: 'badge share' }, 'this device') : null),
-        h('div', { class: 'small dim' }, `${s.ip} · ${s.method} · ${fmtDate(s.created)}`)),
-      !s.current ? h('button', { class: 'btn ghost danger', title: 'Log out this device', html: icon('logout'), onclick: async () => { await api('DELETE', '/api/sessions/' + s.id); drawSess(); } }) : null)));
+    sessList.replaceChildren(...d.sessions.sort((a, b) => b.current - a.current || new Date(b.created) - new Date(a.created)).map(s =>
+      srow(uaLabel(s.ua), s.current ? h('span', { class: 'badge share' }, 'This device') :
+        h('button', { class: 'btn ghost danger sm', title: 'Log out this device', html: icon('logout'), onclick: async () => { await api('DELETE', '/api/sessions/' + s.id); drawSess(); } }),
+        { icon: s.current ? 'check' : 'lock', color: s.current ? 'var(--green)' : 'var(--gray)', sub: `${s.ip} · ${s.method} · ${fmtDate(s.created)}` })),
+      srow(h('span', { class: 'link danger' }, 'Log Out Other Devices'), null, { cls: 'tap', onclick: async () => { await api('DELETE', '/api/sessions/others'); drawSess(); toast('Other devices logged out'); } }));
   };
   pkOnly.onchange = async () => {
-    try { await api('POST', '/api/settings/passkey-only', { enabled: pkOnly.checked }); toast(pkOnly.checked ? 'Passcode fallback disabled' : 'Passcode fallback enabled'); }
+    try { await api('POST', '/api/settings/passkey-only', { enabled: pkOnly.checked }); toast(pkOnly.checked ? 'Passcode fallback off' : 'Passcode fallback on'); }
     catch (e) { toast(e.message, true); pkOnly.checked = !pkOnly.checked; }
   };
-  if (S.me.passkeys_on) drawPk();
-  drawSess();
-  const curF = passwordField({ placeholder: 'Current passcode', autocomplete: 'current-password', 'aria-label': 'Current passcode' });
-  const nwF = passwordField({ placeholder: 'New passcode (min 4)', autocomplete: 'new-password', 'aria-label': 'New passcode' });
-  const cur = curF.input, nw = nwF.input;
   const addPk = async () => {
-    if (!window.PublicKeyCredential) return toast('Passkeys need HTTPS (or localhost) and a modern browser', true);
+    if (!window.PublicKeyCredential) return toast('Passkeys need HTTPS and a modern browser', true);
     const name = await prompt2('Name this passkey', 'e.g. “Phone”, “Laptop”, “YubiKey”', guessDevice(), { okLabel: 'Continue' });
     if (name == null) return;
     try {
       const o = await api('GET', '/api/passkey/register/begin');
-      const cred = await navigator.credentials.create({
-        publicKey: {
-          ...o, challenge: b64uToBuf(o.challenge), user: { ...o.user, id: b64uToBuf(o.user.id) },
-          excludeCredentials: (o.excludeCredentials || []).map(c => ({ ...c, id: b64uToBuf(c.id) })),
-        }
-      });
-      await api('POST', '/api/passkey/register/finish', {
-        name, clientDataJSON: bufToB64u(cred.response.clientDataJSON), attestationObject: bufToB64u(cred.response.attestationObject),
-      });
+      const cred = await navigator.credentials.create({ publicKey: { ...o, challenge: b64uToBuf(o.challenge), user: { ...o.user, id: b64uToBuf(o.user.id) }, excludeCredentials: (o.excludeCredentials || []).map(c => ({ ...c, id: b64uToBuf(c.id) })) } });
+      await api('POST', '/api/passkey/register/finish', { name, clientDataJSON: bufToB64u(cred.response.clientDataJSON), attestationObject: bufToB64u(cred.response.attestationObject) });
       toast('Passkey added'); drawPk();
     } catch (e) { toast(e.message, true); }
   };
-  modal('Settings', h('div', { class: 'settings' },
-    !S.me.passkeys_on ? null : section('Passkeys', 'Primary sign-in: Face ID, fingerprint, Windows Hello, your phone or a security key. The passcode is only a fallback.',
-      pkList,
-      h('button', { class: 'btn', onclick: addPk, html: icon('plus') + 'Add passkey' }),
-      h('label', { class: 'chk' }, pkOnly, h('span', {}, 'Disable passcode fallback',
-        h('div', { class: 'small dim' }, 'Passkey only. Recovery: filenav reset-passkeys')))),
-    section('Passcode', 'Changing it logs out all other devices.',
-      h('div', { class: 'form-grid' }, curF.el, nwF.el,
-        h('button', {
-          class: 'btn', onclick: async () => {
-            try { await api('POST', '/api/settings/passcode', { current: cur.value, new: nw.value }); toast('Passcode changed'); cur.value = nw.value = ''; drawSess(); }
-            catch (e) { toast(e.message, true); }
-          }
-        }, 'Change'))),
-    section('Active sessions', null, sessList,
-      h('button', { class: 'btn danger', onclick: async () => { await api('DELETE', '/api/sessions/others'); drawSess(); toast('Other sessions logged out'); }, html: icon('logout') + 'Log out other devices' })),
-    h('div', { class: 'small dim', style: { textAlign: 'center' } }, `filenav ${S.me.version}`),
-  ), { cls: 'wide' });
+  if (S.me.passkeys_on) drawPk();
+  drawSess();
+  const curF = passwordField({ placeholder: 'Required', autocomplete: 'current-password', 'aria-label': 'Current passcode' });
+  const nwF = passwordField({ placeholder: 'At least 4 characters', autocomplete: 'new-password', 'aria-label': 'New passcode' });
+  const change = h('button', { class: 'btn primary', onclick: async () => {
+    try { await api('POST', '/api/settings/passcode', { current: curF.input.value, new: nwF.input.value }); toast('Passcode changed'); curF.input.value = nwF.input.value = ''; drawSess(); }
+    catch (e) { toast(e.message, true); }
+  } }, 'Change Passcode');
+  return h('div', { class: 'sg-wrap' },
+    S.me.passkeys_on ? h('section', { class: 'sg' }, h('div', { class: 'sg-h' }, 'Passkeys'), pkList, h('div', { class: 'sg-f' }, 'Face ID, fingerprint, Windows Hello or a security key.')) : null,
+    grp('Passcode', [srow('Current', curF.el, { stack: true }), srow('New', nwF.el, { stack: true })], 'Changing it logs out all other devices.'),
+    h('div', { class: 'sg-actions' }, change),
+    h('section', { class: 'sg' }, h('div', { class: 'sg-h' }, 'Devices'), sessList),
+    h('div', { class: 'sg-ver' }, `filenav ${S.me.version}`));
+}
+
+// Movies: TMDB + OpenSubtitles credentials. Secrets are write-only.
+function movieSettings() {
+  const tmdb = passwordField({ placeholder: 'Not set', autocomplete: 'off', 'aria-label': 'TMDB API key' });
+  const osk = passwordField({ placeholder: 'Not set', autocomplete: 'off', 'aria-label': 'OpenSubtitles API key' });
+  const osp = passwordField({ placeholder: 'Not set', autocomplete: 'off', 'aria-label': 'OpenSubtitles password' });
+  const osu = h('input', { class: 'input', placeholder: 'Username', autocomplete: 'off', autocapitalize: 'off', 'aria-label': 'OpenSubtitles username' });
+  const dir = h('input', { class: 'input', placeholder: 'movies', autocapitalize: 'off', 'aria-label': 'Movies folder' });
+  const langs = h('input', { class: 'input', placeholder: 'en', autocapitalize: 'off', 'aria-label': 'Subtitle language', maxlength: 8 });
+  const tmdbState = h('span', { class: 'pill-s' }), osState = h('span', { class: 'pill-s' });
+  const results = h('div', { class: 'sg-results hidden' });
+  const setState = (el, ok) => { el.className = 'pill-s ' + (ok ? 'ok' : ''); el.textContent = ok ? 'Saved' : 'Not set'; };
+  const fill = d => {
+    setState(tmdbState, d.tmdb_key_set); setState(osState, d.os_key_set && d.os_pass_set && d.os_user);
+    tmdb.input.placeholder = d.tmdb_key_set ? '••••••••  saved' : 'Paste API key';
+    osk.input.placeholder = d.os_key_set ? '••••••••  saved' : 'Paste API key';
+    osp.input.placeholder = d.os_pass_set ? '••••••••  saved' : 'Password';
+    osu.value = d.os_user || ''; dir.value = d.movies_dir || 'movies'; langs.value = d.sub_langs || 'en';
+  };
+  api('GET', '/api/movies/settings').then(fill).catch(e => toast(e.message, true));
+  const save = async (quiet) => {
+    const body = { os_user: osu.value, movies_dir: dir.value || 'movies', sub_langs: langs.value || 'en' };
+    if (tmdb.input.value) body.tmdb_key = tmdb.input.value;
+    if (osk.input.value) body.os_key = osk.input.value;
+    if (osp.input.value) body.os_pass = osp.input.value;
+    try {
+      const d = await api('PUT', '/api/movies/settings', body);
+      tmdb.input.value = osk.input.value = osp.input.value = '';
+      fill(d);
+      if (!quiet) toast('Saved');
+      return true;
+    } catch (e) { toast(e.message, true); return false; }
+  };
+  const resultRow = (name, ok, detail) => h('div', { class: 'res-row' },
+    h('span', { class: 'dot ' + (ok === true ? 'ok' : ok === false ? 'bad' : 'warn') }),
+    h('div', { class: 'res-t' }, h('b', {}, name), h('small', {}, detail)));
+  const test = async () => {
+    testBtn.disabled = true; testBtn.textContent = 'Testing…';
+    results.classList.remove('hidden'); results.replaceChildren(h('div', { class: 'res-row' }, h('div', { class: 'progress-line', style: { flex: 1 } })));
+    try {
+      if (!await save(true)) return;
+      const r = await api('POST', '/api/movies/test');
+      const os = r.opensubtitles;
+      results.replaceChildren(
+        resultRow('TMDB', r.tmdb === 'ok' ? true : r.tmdb === 'not set' ? null : false, r.tmdb === 'ok' ? 'Connected' : r.tmdb === 'not set' ? 'No key yet' : r.tmdb),
+        resultRow('OpenSubtitles', os === 'ok' ? true : os === 'not set' ? null : false,
+          os === 'ok' ? (r.os_info || 'Connected').replace(/^(\w+) account · /, (m, k) => `Connected · ${k} · `) : os === 'not set' ? 'No key yet' : os));
+    } catch (e) { results.replaceChildren(resultRow('Test', false, e.message)); }
+    finally { testBtn.disabled = false; testBtn.textContent = 'Test Connection'; }
+  };
+  const testBtn = h('button', { class: 'btn', onclick: test }, 'Test Connection');
+  return h('div', { class: 'sg-wrap' },
+    banner('info', 'Keys are stored on your server only. They are never shown again after saving.'),
+    grp(h('span', {}, 'TMDB ', tmdbState), [srow('API Key', tmdb.el, { stack: true })],
+      h('span', {}, 'Posters and movie details. ', h('a', { href: 'https://www.themoviedb.org/settings/api', target: '_blank', rel: 'noopener' }, 'Get a key'))),
+    grp(h('span', {}, 'OpenSubtitles ', osState), [srow('API Key', osk.el, { stack: true }), srow('Username', osu, { stack: true }), srow('Password', osp.el, { stack: true })],
+      h('span', {}, 'Free accounts get about 20 subtitles a day; the rest are fetched on later scans. ', h('a', { href: 'https://www.opensubtitles.com/consumers', target: '_blank', rel: 'noopener' }, 'Get a key'))),
+    grp('Library', [srow('Movies folder', dir, { cls: 'inline' }), srow('Subtitle language', langs, { cls: 'inline' })], 'Folder inside your files. Language as a 2-letter code (en, es, fr…).'),
+    h('div', { class: 'sg-actions' }, h('button', { class: 'btn primary', onclick: () => save(false) }, 'Save'), testBtn),
+    results);
 }
 
 function guessDevice() {
