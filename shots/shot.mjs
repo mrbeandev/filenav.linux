@@ -31,6 +31,14 @@ for (const [name, w, hgt, mobile] of [['desktop', 1280, 720, false], ['phone', 3
   await js(`document.querySelector('.modal-bg')?.remove(); 1`);
   await js(`document.querySelectorAll('td.act .btn')[3].click(); 1`);
   await sleep(200); await shot(`${name}-menu`);
+  await js(`document.querySelector('.menu-bg')?.remove(); document.querySelector('.menu')?.remove(); document.querySelector("button[title='Settings']").click(); 1`);
+  await sleep(700); await shot(`${name}-settings`);
+  await js(`document.querySelector('.modal-bg')?.remove(); 1`);
+  for (const f of ['.gitignore', 'README.md', 'main.go']) {
+    await js(`[...document.querySelectorAll('td.name a')].find(a => a.textContent.startsWith(${JSON.stringify(f)}))?.click(); 1`);
+    await sleep(1500); await shot(`${name}-view-${f.replace(/^\./, '')}`);
+    await js(`document.querySelector('.modal-bg')?.remove(); 1`);
+  }
   const url = await js(`fetch('/api/shares',{method:'POST',headers:{'X-Filenav':'1','Content-Type':'application/json'},body:JSON.stringify({path:'',allow_upload:true,note:'Drop your holiday photos here please!'})}).then(r=>r.json()).then(j=>j.url)`);
   await cdp('Network.clearBrowserCookies');
   await cdp('Page.navigate', { url }); await sleep(900);

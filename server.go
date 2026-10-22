@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -51,7 +52,7 @@ func (s *Server) routes() {
 
 	// static UI
 	m.HandleFunc("GET /{$}", s.serveAsset("index.html"))
-	m.HandleFunc("GET /assets/{file}", s.handleAsset)
+	m.HandleFunc("GET /assets/{file...}", s.handleAsset)
 	m.HandleFunc("GET /favicon.ico", s.serveAsset("favicon.svg"))
 
 	// auth
@@ -98,6 +99,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /s/{id}/api/unlock", s.handlePubUnlock)
 	m.HandleFunc("GET /s/{id}/api/list", s.handlePubList)
 	m.HandleFunc("GET /s/{id}/dl", s.handlePubDownload)
+	m.HandleFunc("GET /s/{id}/api/text", s.handlePubText)
 	m.HandleFunc("GET /s/{id}/zip", s.handlePubZip)
 	m.HandleFunc("POST /s/{id}/api/upload/init", s.handlePubUploadInit)
 	m.HandleFunc("PUT /s/{id}/api/upload/{uid}", s.handlePubUploadChunk)
@@ -128,9 +130,20 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 
 var assetStart = time.Now()
 
+// The HEIC/TIFF decoder needs eval (emscripten); it only ever runs inside this
+// opaque-origin sandbox, never in the app's own origin.
+const decoderCSP = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; " +
+	"worker-src blob:; img-src blob: data:; connect-src blob: data:"
+
 func (s *Server) sendAsset(w http.ResponseWriter, r *http.Request, name string) {
-	if strings.Contains(name, "/") || strings.HasPrefix(name, ".") {
-		http.NotFound(w, r)
+	for _, part := range strings.Split(name, "/") {
+		if part == "" || strings.HasPrefix(part, ".") {
+			http.NotFound(w, r)
+			return
+		}
+	}
+	if name == "imgdecode.html" {
+		s.sendDecoder(w, r)
 		return
 	}
 	f, err := s.web.Open(name)
@@ -145,7 +158,11 @@ func (s *Server) sendAsset(w http.ResponseWriter, r *http.Request, name string) 
 		return
 	}
 	w.Header().Set("Content-Security-Policy", uiCSP)
-	w.Header().Set("Cache-Control", "no-cache")
+	if strings.HasPrefix(name, "vendor/c/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable") // content-hashed
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
 	http.ServeContent(w, r, name, assetStart, rs)
 }
 
@@ -236,4 +253,32 @@ func (s *Server) cleanup() {
 	if n := s.cleanStaleUploads(48 * time.Hour); n > 0 {
 		log.Printf("janitor: removed %d stale partial uploads", n)
 	}
+}
+
+var (
+	decoderOnce sync.Once
+	decoderPage []byte
+)
+
+// sendDecoder serves the HEIC/TIFF decoder page with its script inlined:
+// the page is sandboxed (opaque origin) so it can't load same-origin scripts.
+func (s *Server) sendDecoder(w http.ResponseWriter, r *http.Request) {
+	decoderOnce.Do(func() {
+		js, err := fs.ReadFile(s.web, "vendor/imgdecode.js")
+		if err != nil {
+			return
+		}
+		js = bytes.ReplaceAll(js, []byte("</script"), []byte("<\\/script"))
+		decoderPage = append([]byte("<!doctype html><meta charset=utf-8><script>"), js...)
+		decoderPage = append(decoderPage, "</script>"...)
+	})
+	if decoderPage == nil {
+		http.NotFound(w, r)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Content-Security-Policy", decoderCSP)
+	h.Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(decoderPage)
 }

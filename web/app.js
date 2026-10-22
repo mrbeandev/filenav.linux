@@ -26,25 +26,33 @@ async function boot() {
 // ---------- login ----------
 function renderLogin() {
   const err = h('div', { class: 'err' });
-  const pass = h('input', { class: 'input', type: 'password', placeholder: 'Passcode', autocomplete: 'current-password', autofocus: true });
-  const canPasskey = !!window.PublicKeyCredential && S.me.passkeys > 0;
-  const form = h('form', {
+  const hasPasskeys = !!window.PublicKeyCredential && S.me.passkeys > 0;
+  const pass = h('input', { class: 'input', type: 'password', placeholder: 'Passcode', autocomplete: 'current-password' });
+  const passForm = h('form', {
+    class: 'pass-form' + (hasPasskeys ? ' hidden' : ''),
     onsubmit: async e => {
       e.preventDefault(); err.textContent = '';
       try { await api('POST', '/api/login', { passcode: pass.value }); location.reload(); }
       catch (x) { err.textContent = x.message; pass.select(); }
     }
-  },
-    !S.me.passkey_only ? [pass, h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Unlock')] : null,
-    canPasskey && !S.me.passkey_only ? h('div', { class: 'sep' }, 'or') : null,
-    canPasskey ? h('button', { class: 'btn' + (S.me.passkey_only ? ' primary' : ''), type: 'button', style: { justifyContent: 'center' }, onclick: () => passkeyLogin(err), html: icon('key') + 'Sign in with passkey' }) : null,
-    err);
+  }, pass, h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Unlock'));
+  const showPass = () => { passForm.classList.remove('hidden'); fallback.classList.add('hidden'); pass.focus(); };
+  const fallback = h('button', { class: 'btn ghost small', type: 'button', style: { justifyContent: 'center' }, onclick: showPass }, 'Use passcode instead');
+  const pkBtn = h('button', { class: 'btn primary', type: 'button', style: { justifyContent: 'center' }, onclick: () => passkeyLogin(err, false, onPkFail), html: icon('key') + 'Sign in with passkey' });
+  const onPkFail = () => { if (!S.me.passkey_only) showPass(); };
   $('#root').replaceChildren(h('div', { class: 'center' }, h('div', { class: 'card' },
-    h('h1', {}, iconEl('logo', 'logo'), S.me.title), h('div', { class: 'dim' }, 'Enter your passcode to continue.'), form)));
-  if (S.me.passkey_only && canPasskey) passkeyLogin(err, true);
+    h('h1', {}, iconEl('logo', 'logo'), S.me.title),
+    h('div', { class: 'dim' }, hasPasskeys ? 'Sign in with your passkey.' : 'Enter your passcode to continue.'),
+    h('div', { class: 'login-box' },
+      hasPasskeys ? pkBtn : null,
+      hasPasskeys && !S.me.passkey_only ? fallback : null,
+      !S.me.passkey_only || !hasPasskeys ? passForm : null,
+      err))));
+  if (hasPasskeys) passkeyLogin(err, true, onPkFail); // try passkey immediately
+  else pass.focus();
 }
 
-async function passkeyLogin(err, silent) {
+async function passkeyLogin(err, silent, onFail) {
   try {
     const o = await api('GET', '/api/passkey/login/begin');
     const cred = await navigator.credentials.get({
@@ -57,7 +65,10 @@ async function passkeyLogin(err, silent) {
       signature: bufToB64u(cred.response.signature),
     });
     location.reload();
-  } catch (e) { if (!silent || e.name !== 'NotAllowedError') err.textContent = e.message; }
+  } catch (e) {
+    if (!silent || e.name !== 'NotAllowedError') err.textContent = e.name === 'NotAllowedError' ? 'Passkey sign-in was cancelled or not available.' : e.message;
+    onFail && onFail();
+  }
 }
 
 // ---------- app shell ----------
@@ -166,7 +177,7 @@ function render() {
 
 function row(e, full, sharedPaths) {
   const sel = S.sel.has(e.name);
-  const open = ev => { ev.preventDefault(); openEntry(e, full); };
+  const open = ev => { ev.preventDefault(); openEntry(e, full, tr._list); };
   const tr = h('tr', {
     class: 'f' + (sel ? ' sel' : ''),
     oncontextmenu: ev => { ev.preventDefault(); if (!S.sel.has(e.name)) { S.sel.clear(); S.sel.add(e.name); render(); } contextMenu(ev, e, full); },
@@ -189,6 +200,7 @@ function renderSearch(main) {
     `${results.length} result(s) for “${q}”` + (truncated ? ' (truncated — refine your search)' : '')),
     results.length ? h('table', { class: 'files' }, h('tbody', {}, results.map(r => {
       const tr = row(r, r.path, null);
+      tr._list = results.filter(x => !x.dir).map(x => ({ e: x, full: x.path }));
       tr.firstChild.replaceChildren();
       const dir = r.path.split('/').slice(0, -1).join('/');
       tr.children[1].append(h('div', { class: 'small dim' }, '/' + dir));
@@ -234,12 +246,23 @@ function renderSelbar() {
 // ---------- actions ----------
 const dlURL = (p, inline) => '/api/dl?path=' + encPath(p) + (inline ? '&inline=1' : '');
 
-function openEntry(e, full) {
+function viewerOpts(e, full, list) {
+  const dir = full.split('/').slice(0, -1).join('/');
+  const files = list || S.entries.filter(x => !x.dir).map(x => ({ e: x, full: joinPath(S.path, x.name) }));
+  const index = Math.max(0, files.findIndex(f => f.full === full));
+  return {
+    name: e.name, size: e.size, raw: dlURL(full, true), dl: dlURL(full), text: '/api/text?path=' + encPath(full),
+    save: content => api('PUT', '/api/text', { path: full, content }).then(r => { load(true); return r; }),
+    resolve: (rel, isImg) => dlURL(resolveRel(dir, rel), isImg),
+    count: files.length, index,
+    nav: i => openEntry(files[i].e, files[i].full, files),
+    extra: [h('button', { class: 'btn ghost', html: icon('share'), title: 'Share', onclick: () => shareDialog(full, false) })],
+  };
+}
+
+function openEntry(e, full, list) {
   if (e.dir) { S.search = null; $('input.search').value = ''; return go(full); }
-  const k = previewKind(e.name);
-  if (k === 'text' && e.size < 5 << 20) return editText(full);
-  if (!openPreview(e.name, dlURL(full, true), dlURL(full), h('button', { class: 'btn', html: icon('share'), title: 'Share', onclick: () => shareDialog(full, false) })))
-    location.href = dlURL(full);
+  openViewer(viewerOpts(e, full, list));
 }
 
 function downloadSel() {
@@ -265,7 +288,7 @@ async function newFolder() {
 async function newFile() {
   const name = await prompt2('New file', null, 'notes.txt', { okLabel: 'Create', selectBase: true });
   if (!name) return;
-  try { const r = await api('POST', '/api/mkdir', { path: S.path, name, file: true }); await load(); editText(r.path); } catch (e) { toast(e.message, true); }
+  try { const r = await api('POST', '/api/mkdir', { path: S.path, name, file: true }); await load(); openEntry({ name, size: 0 }, r.path); } catch (e) { toast(e.message, true); }
 }
 
 async function rename(full, name) {
@@ -317,32 +340,6 @@ async function moveDialog(paths, copy = false) {
   });
 }
 
-async function editText(full) {
-  let d;
-  try { d = await api('GET', '/api/text?path=' + encPath(full)); }
-  catch (e) { location.href = dlURL(full); return; }
-  const ta = h('textarea', { class: 'editor', spellcheck: 'false' });
-  ta.value = d.content;
-  let dirty = false;
-  ta.addEventListener('input', () => { dirty = true; saveBtn.disabled = false; });
-  ta.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
-    if (e.key === 'Tab') { e.preventDefault(); ta.setRangeText('\t', ta.selectionStart, ta.selectionEnd, 'end'); dirty = true; saveBtn.disabled = false; }
-  });
-  const save = async () => {
-    try { await api('PUT', '/api/text', { path: full, content: ta.value }); dirty = false; saveBtn.disabled = true; toast('Saved'); load(true); }
-    catch (e) { toast(e.message, true); }
-  };
-  const saveBtn = h('button', { class: 'btn primary', disabled: true, onclick: save, html: icon('check') + 'Save' });
-  const m = modal(full.split('/').pop(), ta, { cls: 'full' });
-  const head = $('header', m.box);
-  head.insertBefore(h('a', { class: 'btn', href: dlURL(full), html: icon('download') }), head.lastChild);
-  head.insertBefore(saveBtn, head.lastChild);
-  const closeBtn = head.lastChild;
-  closeBtn.onclick = null;
-  closeBtn.addEventListener('click', e => { if (dirty && !window.confirm('Discard unsaved changes?')) e.stopImmediatePropagation(); }, true);
-}
-
 function closeMenu() { $('.menu')?.remove(); $('.menu-bg')?.remove(); }
 
 function contextMenu(ev, e, full) {
@@ -354,7 +351,7 @@ function contextMenu(ev, e, full) {
     item('folder', 'Move / copy to…', () => moveDialog([...S.sel].map(n => joinPath(S.path, n)))),
     item('trash', `Delete ${S.sel.size} items`, () => del([...S.sel].map(n => joinPath(S.path, n))), 'danger'),
   ] : [
-    !e.dir && previewKind(e.name) ? item('eye', previewKind(e.name) === 'text' ? 'Open / edit' : 'Preview', () => openEntry(e, full)) : null,
+    !e.dir ? item(viewKind(e.name) === 'text' || viewKind(e.name) === 'md' ? 'edit' : 'eye', viewKind(e.name) === 'text' ? 'Open / edit' : 'Open', () => openEntry(e, full)) : null,
     e.dir ? item('folder', 'Open', () => openEntry(e, full)) : null,
     item('download', e.dir ? 'Download as zip' : 'Download', () => {
       if (e.dir) { const dir = full.split('/').slice(0, -1).join('/'); location.href = '/api/zip?' + new URLSearchParams({ dir, names: e.name }); }
@@ -463,36 +460,45 @@ async function showShares() {
 }
 
 // ---------- settings ----------
+function uaLabel(ua) {
+  const b = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /curl/i.test(ua) ? 'curl' : 'Browser';
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${b} on ${os}` : b;
+}
+
 async function showSettings() {
   const pkList = h('div', { class: 'list' });
   const sessList = h('div', { class: 'list' });
   const pkOnly = h('input', { type: 'checkbox' });
+  const section = (title, desc, ...kids) => h('section', { class: 'set-card' }, h('h4', {}, title), desc ? h('p', { class: 'small dim' }, desc) : null, ...kids);
   const drawPk = async () => {
     const d = await api('GET', '/api/passkeys');
     S.me = await api('GET', '/api/me');
     pkOnly.checked = S.me.passkey_only;
     pkOnly.disabled = !d.passkeys.length;
     pkList.replaceChildren(...(d.passkeys.length ? d.passkeys.map(p => h('div', { class: 'item' }, iconEl('key'),
-      h('div', { class: 'main' }, h('div', {}, p.name), h('div', { class: 'small dim' }, 'added ' + fmtDate(p.created) + (new Date(p.last_used).getFullYear() > 1971 ? ' · last used ' + fmtDate(p.last_used) : ''))),
-      h('button', { class: 'btn ghost danger', html: icon('trash'), onclick: async () => {
+      h('div', { class: 'main' }, h('div', {}, p.name), h('div', { class: 'small dim' }, 'Added ' + fmtDate(p.created) + (new Date(p.last_used).getFullYear() > 1971 ? ' · used ' + fmtDate(p.last_used) : ''))),
+      h('button', { class: 'btn ghost danger', title: 'Remove', html: icon('trash'), onclick: async () => {
         if (!await confirm2('Remove passkey', `Remove “${p.name}”?`, 'Remove')) return;
         await api('DELETE', '/api/passkeys/' + p.id); drawPk();
-      } }))) : [h('div', { class: 'dim small' }, 'No passkeys yet.')]));
+      } }))) : [h('div', { class: 'small dim' }, 'No passkeys yet.')]));
   };
   const drawSess = async () => {
     const d = await api('GET', '/api/sessions');
     sessList.replaceChildren(...d.sessions.sort((a, b) => b.current - a.current || new Date(b.created) - new Date(a.created)).map(s => h('div', { class: 'item' },
-      h('div', { class: 'main' }, h('div', { title: s.ua }, (s.current ? '● This device — ' : '') + s.ua.slice(0, 70)),
-        h('div', { class: 'small dim' }, `${s.ip} · ${s.method} · since ${new Date(s.created).toLocaleString()}`)),
-      !s.current ? h('button', { class: 'btn ghost danger', title: 'Log out', html: icon('logout'), onclick: async () => { await api('DELETE', '/api/sessions/' + s.id); drawSess(); } }) : null)));
+      iconEl(s.current ? 'check' : 'lock'),
+      h('div', { class: 'main' },
+        h('div', { title: s.ua }, uaLabel(s.ua), s.current ? h('span', { class: 'badge share' }, 'this device') : null),
+        h('div', { class: 'small dim' }, `${s.ip} · ${s.method} · ${fmtDate(s.created)}`)),
+      !s.current ? h('button', { class: 'btn ghost danger', title: 'Log out this device', html: icon('logout'), onclick: async () => { await api('DELETE', '/api/sessions/' + s.id); drawSess(); } }) : null)));
   };
   pkOnly.onchange = async () => {
-    try { await api('POST', '/api/settings/passkey-only', { enabled: pkOnly.checked }); toast(pkOnly.checked ? 'Passcode login disabled' : 'Passcode login enabled'); }
+    try { await api('POST', '/api/settings/passkey-only', { enabled: pkOnly.checked }); toast(pkOnly.checked ? 'Passcode fallback disabled' : 'Passcode fallback enabled'); }
     catch (e) { toast(e.message, true); pkOnly.checked = !pkOnly.checked; }
   };
   drawPk(); drawSess();
   const cur = h('input', { class: 'input', type: 'password', placeholder: 'Current passcode', autocomplete: 'current-password' });
-  const nw = h('input', { class: 'input', type: 'password', placeholder: 'New passcode (min 4 chars)', autocomplete: 'new-password' });
+  const nw = h('input', { class: 'input', type: 'password', placeholder: 'New passcode (min 4)', autocomplete: 'new-password' });
   const addPk = async () => {
     if (!window.PublicKeyCredential) return toast('Passkeys need HTTPS (or localhost) and a modern browser', true);
     const name = await prompt2('Name this passkey', 'e.g. “Phone”, “Laptop”, “YubiKey”', guessDevice(), { okLabel: 'Continue' });
@@ -511,25 +517,24 @@ async function showSettings() {
       toast('Passkey added'); drawPk();
     } catch (e) { toast(e.message, true); }
   };
-  modal('Settings', [
-    h('h4', {}, 'Passkeys'),
-    h('div', { class: 'small dim' }, 'Sign in with Face ID, Touch ID, Windows Hello, your phone or a security key.'),
-    pkList,
-    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: addPk, html: icon('plus') + 'Add passkey' })),
-    h('label', { class: 'chk' }, pkOnly, h('span', {}, 'Passkey-only mode', h('div', { class: 'small dim' }, 'Disable passcode login entirely (recover via CLI: filenav reset-passkeys).'))),
-    h('h4', {}, 'Change passcode'),
-    cur, nw,
-    h('div', { class: 'row' }, h('button', {
-      class: 'btn', onclick: async () => {
-        try { await api('POST', '/api/settings/passcode', { current: cur.value, new: nw.value }); toast('Passcode changed — other sessions logged out'); cur.value = nw.value = ''; drawSess(); }
-        catch (e) { toast(e.message, true); }
-      }
-    }, 'Change passcode')),
-    h('h4', {}, 'Active sessions'),
-    sessList,
-    h('div', { class: 'row' }, h('button', { class: 'btn danger', onclick: async () => { await api('DELETE', '/api/sessions/others'); drawSess(); toast('Other sessions logged out'); } }, 'Log out all other devices')),
-    h('div', { class: 'small dim' }, `filenav ${S.me.version}`),
-  ], { cls: 'wide' });
+  modal('Settings', h('div', { class: 'settings' },
+    section('Passkeys', 'Primary sign-in: Face ID, fingerprint, Windows Hello, your phone or a security key. The passcode is only a fallback.',
+      pkList,
+      h('button', { class: 'btn', onclick: addPk, html: icon('plus') + 'Add passkey' }),
+      h('label', { class: 'chk' }, pkOnly, h('span', {}, 'Disable passcode fallback',
+        h('div', { class: 'small dim' }, 'Passkey only. Recovery: filenav reset-passkeys')))),
+    section('Passcode', 'Changing it logs out all other devices.',
+      h('div', { class: 'form-grid' }, cur, nw,
+        h('button', {
+          class: 'btn', onclick: async () => {
+            try { await api('POST', '/api/settings/passcode', { current: cur.value, new: nw.value }); toast('Passcode changed'); cur.value = nw.value = ''; drawSess(); }
+            catch (e) { toast(e.message, true); }
+          }
+        }, 'Change'))),
+    section('Active sessions', null, sessList,
+      h('button', { class: 'btn danger', onclick: async () => { await api('DELETE', '/api/sessions/others'); drawSess(); toast('Other sessions logged out'); }, html: icon('logout') + 'Log out other devices' })),
+    h('div', { class: 'small dim', style: { textAlign: 'center' } }, `filenav ${S.me.version}`),
+  ), { cls: 'wide' });
 }
 
 function guessDevice() {

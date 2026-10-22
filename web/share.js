@@ -46,6 +46,16 @@ function renderPassword() {
 }
 
 const subFromHash = () => decodeURIComponent(location.hash.replace(/^#\/?/, '')).replace(/\/+$/, '');
+// viewer options for a file inside the share ('' = the shared file itself)
+function pubOpts(name, size, sub) {
+  const q = sub ? 'path=' + encPath(sub) : '';
+  const dir = sub.split('/').slice(0, -1).join('/');
+  return {
+    name, size, raw: base + '/dl?' + q + (q ? '&' : '') + 'inline=1', dl: base + '/dl' + (q ? '?' + q : ''),
+    text: base + '/api/text' + (q ? '?' + q : ''),
+    resolve: V.info.is_dir ? (rel, isImg) => dl(resolveRel(dir, rel), isImg) : null,
+  };
+}
 const dl = (p, inline) => base + '/dl?path=' + encPath(p) + (inline ? '&inline=1' : '');
 
 async function load() {
@@ -76,7 +86,7 @@ function render() {
     const pk = previewKind(i.name);
     kids.push(h('div', { class: 'row', style: { justifyContent: 'center', margin: '16px' } },
       h('a', { class: 'btn primary', href: base + '/dl', html: icon('download') + 'Download' }),
-      pk && pk !== 'text' ? h('button', { class: 'btn', onclick: () => openPreview(i.name, base + '/dl?inline=1', base + '/dl'), html: icon('eye') + 'Preview' }) : null));
+      ['bin', 'office'].includes(viewKind(i.name)) ? null : h('button', { class: 'btn', onclick: () => openViewer(pubOpts(i.name, i.size, '')), html: icon('eye') + (viewKind(i.name) === 'text' ? 'View' : 'Preview') })));
     if (pk === 'img') kids.push(h('div', { class: 'container', style: { textAlign: 'center', padding: '0 16px 30px' } },
       h('img', { src: base + '/dl?inline=1', style: { maxWidth: '100%', maxHeight: '70vh', borderRadius: '10px' } })));
     if (pk === 'vid') kids.push(h('div', { class: 'container', style: { textAlign: 'center', padding: '0 16px 30px' } },
@@ -118,8 +128,10 @@ function renderList() {
         href: e.dir ? '#/' + full.split('/').map(encodeURIComponent).join('/') : dl(full),
         onclick: ev => {
           if (e.dir) return;
-          const pk = previewKind(e.name);
-          if (pk && pk !== 'text') { ev.preventDefault(); openPreview(e.name, dl(full, true), dl(full)); }
+          ev.preventDefault();
+          const files = V.entries.filter(x => !x.dir);
+          const open = i => openViewer({ ...pubOpts(files[i].name, files[i].size, joinPath(V.path, files[i].name)), count: files.length, index: i, nav: open });
+          open(files.indexOf(e));
         }
       }, fileIcon(e.name, e.dir), h('span', { class: 'nm' }, h('span', {}, e.name),
         h('span', { class: 'meta' }, [e.dir ? 'Folder' : fmtSize(e.size), fmtDate(e.mtime)].filter(Boolean).join(' · '))))),

@@ -4,3 +4,4 @@
 /filenav-data/
 /.gocache/
 /shots/*.png
+/ui-vendor/node_modules/

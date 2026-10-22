@@ -56,6 +56,9 @@ const P = {
   pause: '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>',
   play: '<path d="m6 3 14 9-14 9z"/>',
   fileplus: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 18v-6M9 15h6"/>',
+  left: '<path d="m15 18-6-6 6-6"/>',
+  right: '<path d="m9 18 6-6-6-6"/>',
+  wrap: '<path d="M3 6h18M3 12h15a3 3 0 1 1 0 6h-4M3 18h7"/><path d="m16 16-2 2 2 2"/>',
   logo: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor" fill-opacity=".2"/><path d="m10 13 2-2 2 2M12 11v5"/>',
 };
 function icon(name, cls = '') {
@@ -86,15 +89,33 @@ function fileIcon(name, isDir) {
   const map = { dir: 'folder', img: 'img', vid: 'vid', aud: 'aud', arc: 'arc', code: 'code', doc: 'doc', file: 'file' };
   return iconEl(map[k], 'fi ' + k);
 }
-const TEXT_EXT = new Set((EXT.code + ' txt md csv log srt vtt gitignore service nfo').split(' '));
-function previewKind(name) {
+const extSet = str => new Set(str.split(' '));
+const K_IMG = extSet('jpg jpeg jfif pjpeg png apng gif webp avif bmp ico svg');
+const K_IMGDEC = extSet('heic heif tif tiff');
+const K_VID = extSet('mp4 m4v webm ogv mov mkv avi wmv flv 3gp ts');
+const K_AUD = extSet('mp3 wav ogg oga flac m4a aac opus weba');
+const K_OFFICE = extSet('doc docx odt rtf xls xlsx xlsm xlsb ods ppt pptx odp key numbers pages');
+const K_BIN = extSet('zip tar gz tgz bz2 xz 7z rar zst iso dmg img exe dll so dylib bin deb rpm apk msi jar class pyc o a ' +
+  'woff woff2 ttf otf eot psd ai sqlite db mdb cr2 nef arw dng raf orf epub mobi');
+
+// viewKind decides how the viewer opens a file; everything not known to be
+// binary is tried as text (the server checks the actual content).
+function viewKind(name) {
   const e = extOf(name);
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico', 'avif'].includes(e)) return 'img';
-  if (['mp4', 'webm', 'ogv', 'm4v', 'mov', 'mkv'].includes(e)) return 'vid';
-  if (['mp3', 'wav', 'ogg', 'oga', 'flac', 'm4a', 'aac', 'opus'].includes(e)) return 'aud';
+  if (K_IMG.has(e)) return 'img';
+  if (K_IMGDEC.has(e)) return 'imgdec';
+  if (K_VID.has(e)) return 'vid';
+  if (K_AUD.has(e)) return 'aud';
   if (e === 'pdf') return 'pdf';
-  if (TEXT_EXT.has(e)) return 'text';
-  return null;
+  if (e === 'md' || e === 'markdown' || e === 'mdx') return 'md';
+  if (K_OFFICE.has(e)) return 'office';
+  if (K_BIN.has(e)) return 'bin';
+  return 'text';
+}
+// kept for inline rendering on the public single-file page
+function previewKind(name) {
+  const k = viewKind(name);
+  return k === 'imgdec' ? 'img' : ['img', 'vid', 'aud', 'pdf'].includes(k) ? k : null;
 }
 
 function fmtSize(n) {
@@ -155,9 +176,11 @@ async function copyText(text) {
 }
 
 // ---------- modal ----------
-function modal(title, body, { buttons = [], cls = '', onClose } = {}) {
-  const close = () => { bg.remove(); document.removeEventListener('keydown', onKey); onClose && onClose(); };
-  const onKey = e => { if (e.key === 'Escape') close(); };
+function modal(title, body, { buttons = [], cls = '', onClose, beforeClose } = {}) {
+  let closed = false;
+  const forceClose = () => { if (closed) return; closed = true; bg.remove(); document.removeEventListener('keydown', onKey); onClose && onClose(); };
+  const close = () => { if (beforeClose && !beforeClose()) return; forceClose(); };
+  const onKey = e => { if (e.key === 'Escape' && bg === $$('.modal-bg').pop()) close(); };
   const footer = buttons.length ? h('footer', {}, buttons.map(b =>
     h('button', { class: 'btn ' + (b.cls || ''), type: b.submit ? 'submit' : 'button', onclick: b.submit ? null : () => b.onclick(close) }, b.label))) : null;
   const head = h('header', {}, h('h3', {}, title), h('button', { class: 'btn ghost', onclick: close, html: icon('x'), title: 'Close' }));
@@ -166,7 +189,7 @@ function modal(title, body, { buttons = [], cls = '', onClose } = {}) {
   document.body.append(bg);
   document.addEventListener('keydown', onKey);
   setTimeout(() => $('input:not([type=checkbox]),textarea', box)?.focus(), 30);
-  return { close, box };
+  return { close, forceClose, box };
 }
 
 function prompt2(title, label, value = '', { okLabel = 'OK', selectBase = false } = {}) {
@@ -393,18 +416,188 @@ function pickFiles(folder = false) {
 const joinPath = (a, b) => (a ? a + '/' : '') + b;
 const encPath = p => encodeURIComponent(p);
 
-// Preview modal used by both pages. dl(name, inline) returns a URL.
-function openPreview(name, url, downloadURL, extra) {
-  const k = previewKind(name);
-  let el;
-  if (k === 'img') el = h('img', { src: url, alt: name });
-  else if (k === 'vid') el = h('video', { src: url, controls: true, autoplay: true, playsinline: true });
-  else if (k === 'aud') el = h('audio', { src: url, controls: true, autoplay: true });
-  else if (k === 'pdf' || k === 'text') el = h('iframe', { src: url });
-  else return false;
-  const m = modal(name, h('div', { class: 'preview' }, el), { cls: 'full' });
-  const head = $('header', m.box);
-  head.insertBefore(h('a', { class: 'btn', href: downloadURL, html: icon('download') + '<span class="lbl">Download</span>' }), head.lastChild);
-  if (extra) head.insertBefore(extra, head.lastChild);
-  return true;
+// ---------- HEIC/TIFF decoding in a sandboxed iframe ----------
+let _decReady = null, _decSeq = 0;
+const _decPending = new Map();
+function decodeImage(buf, ext) {
+  if (!_decReady) _decReady = new Promise((resolve, reject) => {
+    const f = h('iframe', { src: '/assets/imgdecode.html', sandbox: 'allow-scripts', style: { display: 'none' }, title: 'decoder' });
+    window.addEventListener('message', e => {
+      if (e.source !== f.contentWindow) return;
+      const d = e.data || {};
+      if (d.ready) return resolve(f);
+      const p = _decPending.get(d.id);
+      if (!p) return;
+      _decPending.delete(d.id);
+      d.error ? p.reject(new Error(d.error)) : p.resolve(d.blob);
+    });
+    document.body.append(f);
+    setTimeout(() => reject(new Error('image decoder failed to load')), 20000);
+  });
+  return _decReady.then(f => new Promise((resolve, reject) => {
+    const id = ++_decSeq;
+    _decPending.set(id, { resolve, reject });
+    f.contentWindow.postMessage({ id, buf, ext }, '*', [buf]);
+  }));
+}
+
+// resolve a relative link (from a markdown file) against its folder
+function resolveRel(dir, rel) {
+  rel = rel.split(/[?#]/)[0];
+  try { rel = decodeURIComponent(rel); } catch { }
+  const parts = rel.startsWith('/') ? [] : (dir ? dir.split('/') : []);
+  for (const p of rel.split('/')) {
+    if (!p || p === '.') continue;
+    if (p === '..') parts.pop(); else parts.push(p);
+  }
+  return parts.join('/');
+}
+
+const prefersDark = () => matchMedia('(prefers-color-scheme: dark)').matches;
+
+/* Universal file viewer.
+   o = { name, size, raw (inline URL), dl (download URL), text (text API URL),
+         save?(content) → Promise, resolve?(relLink, isImage) → URL,
+         count?, index?, nav?(i), extra?: [elements] } */
+function openViewer(o) {
+  const kind = viewKind(o.name);
+  const body = h('div', { class: 'viewer' }, h('div', { class: 'viewer-msg dim' }, 'Loading…'));
+  let dirty = false, editor = null, blobURL = null, mdMode = 'view', mdSrc = '';
+  const cleanup = [];
+  const m = modal(o.name, body, {
+    cls: 'full',
+    beforeClose: () => !dirty || window.confirm('Discard unsaved changes?'),
+    onClose: () => { editor && editor.destroy(); blobURL && URL.revokeObjectURL(blobURL); cleanup.forEach(f => f()); },
+  });
+  const header = $('header', m.box);
+  const closeBtn = header.lastChild;
+  const add = el => { if (el) header.insertBefore(el, closeBtn); return el; };
+  const langLabel = add(h('span', { class: 'small dim hide-sm' }));
+  const wrapBtn = add(h('button', { class: 'btn ghost hidden', title: 'Toggle line wrap', onclick: () => { editor.setWrap(!editor.wrapped); wrapBtn.classList.toggle('on', editor.wrapped); }, html: icon('wrap') }));
+  const mdBtn = add(h('button', { class: 'btn hidden', onclick: () => toggleMd() }));
+  const saveBtn = o.save ? add(h('button', { class: 'btn primary hidden', disabled: true, onclick: () => save(), html: icon('check') + '<span class="lbl">Save</span>' })) : null;
+  if (o.nav && o.count > 1) {
+    add(h('button', { class: 'btn ghost', title: 'Previous (←)', onclick: () => go(-1), html: icon('left') }));
+    add(h('span', { class: 'small dim hide-sm' }, `${o.index + 1}/${o.count}`));
+    add(h('button', { class: 'btn ghost', title: 'Next (→)', onclick: () => go(1), html: icon('right') }));
+  }
+  add(h('a', { class: 'btn ghost', href: o.dl, title: 'Download', html: icon('download') }));
+  (o.extra || []).forEach(add);
+
+  const go = d => {
+    if (dirty && !window.confirm('Discard unsaved changes?')) return;
+    dirty = false;
+    m.forceClose();
+    o.nav((o.index + d + o.count) % o.count);
+  };
+  const onKey = e => {
+    if (!o.nav || o.count < 2 || e.target.closest?.('.cm-editor, input, textarea') || $$('.modal-bg').pop() !== m.box.parentNode) return;
+    if (e.key === 'ArrowLeft') go(-1);
+    if (e.key === 'ArrowRight') go(1);
+  };
+  document.addEventListener('keydown', onKey);
+  cleanup.push(() => document.removeEventListener('keydown', onKey));
+  // swipe left/right on touch screens (media only; editors need horizontal scroll)
+  if (['img', 'imgdec', 'pdf', 'office', 'bin'].includes(kind)) {
+    let x0 = null;
+    body.addEventListener('touchstart', e => { x0 = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
+    body.addEventListener('touchend', e => {
+      if (x0 == null || !o.nav) return;
+      const dx = e.changedTouches[0].clientX - x0;
+      if (Math.abs(dx) > 70) go(dx < 0 ? 1 : -1);
+    });
+  }
+
+  const markDirty = () => { if (!dirty) { dirty = true; if (saveBtn) saveBtn.disabled = false; } };
+  async function save() {
+    if (!o.save || !editor) return;
+    try { await o.save(editor.getValue()); dirty = false; saveBtn.disabled = true; toast('Saved'); }
+    catch (e) { toast(e.message, true); }
+  }
+  function noPreview(msg) {
+    body.replaceChildren(h('div', { class: 'viewer-msg' },
+      fileIcon(o.name, false), h('div', { class: 'vm-name' }, o.name),
+      o.size != null ? h('div', { class: 'dim small' }, fmtSize(o.size)) : null,
+      h('div', { class: 'dim', style: { maxWidth: '460px' } }, msg),
+      h('a', { class: 'btn primary', href: o.dl, html: icon('download') + 'Download' })));
+  }
+  async function mountEditor(content) {
+    const mod = await import('/assets/vendor/editor.js');
+    const host = h('div', { class: 'cm-host' });
+    body.replaceChildren(host);
+    editor && editor.destroy();
+    editor = await mod.create(host, { doc: content, name: o.name, dark: prefersDark(), readOnly: !o.save, onChange: markDirty, onSave: save });
+    langLabel.textContent = editor.language;
+    wrapBtn.classList.remove('hidden');
+    if (saveBtn) saveBtn.classList.remove('hidden');
+    if (kind !== 'md') editor.focus();
+  }
+  async function renderMd(src) {
+    const mod = await import('/assets/vendor/markdown.js');
+    const frag = mod.render(src, { resolve: o.resolve });
+    body.replaceChildren(h('div', { class: 'md-scroll' }, h('article', { class: 'md-body' }, frag)));
+  }
+  async function toggleMd() {
+    if (mdMode === 'view') {
+      mdMode = 'edit'; await mountEditor(mdSrc);
+      mdBtn.innerHTML = icon('eye') + '<span class="lbl">Preview</span>';
+    } else {
+      if (editor) mdSrc = editor.getValue();
+      editor && editor.destroy(); editor = null;
+      wrapBtn.classList.add('hidden'); langLabel.textContent = 'Markdown';
+      mdMode = 'view'; await renderMd(mdSrc);
+      mdBtn.innerHTML = icon(o.save ? 'edit' : 'code') + `<span class="lbl">${o.save ? 'Edit' : 'Source'}</span>`;
+    }
+  }
+  async function loadText() {
+    if (o.size != null && o.size > 10 << 20) { noPreview('This file is too large to open in the editor (max 10 MB).'); return null; }
+    try { return (await api('GET', o.text)).content; }
+    catch (e) {
+      if (e.status === 415) noPreview('This looks like a binary file, so it can\u2019t be shown as text.');
+      else noPreview(e.message);
+      return null;
+    }
+  }
+
+  (async () => {
+    try {
+      if (kind === 'img') {
+        const img = h('img', { src: o.raw, alt: o.name, onclick: () => img.classList.toggle('zoom') });
+        img.onerror = () => noPreview('This image could not be displayed.');
+        body.replaceChildren(h('div', { class: 'preview' }, img));
+      } else if (kind === 'imgdec') {
+        body.replaceChildren(h('div', { class: 'viewer-msg dim' }, 'Decoding image…'));
+        const buf = await (await fetch(o.raw, { credentials: 'same-origin' })).arrayBuffer();
+        const blob = await decodeImage(buf, extOf(o.name));
+        blobURL = URL.createObjectURL(blob);
+        const img = h('img', { src: blobURL, alt: o.name, onclick: () => img.classList.toggle('zoom') });
+        body.replaceChildren(h('div', { class: 'preview' }, img));
+      } else if (kind === 'vid') {
+        const v = h('video', { src: o.raw, controls: true, autoplay: true, playsinline: true, preload: 'metadata' });
+        v.addEventListener('error', () => noPreview('Your browser can\u2019t play this video\u2019s format or codec (common with AVI, WMV, and some MKV/HEVC files). Download it and play it in VLC or mpv.'));
+        body.replaceChildren(h('div', { class: 'preview' }, v));
+      } else if (kind === 'aud') {
+        const a = h('audio', { src: o.raw, controls: true, autoplay: true });
+        a.addEventListener('error', () => noPreview('Your browser can\u2019t play this audio format.'));
+        body.replaceChildren(h('div', { class: 'preview audio' }, fileIcon(o.name, false), a));
+      } else if (kind === 'pdf') {
+        body.replaceChildren(h('div', { class: 'preview' }, h('iframe', { src: o.raw, title: o.name })));
+      } else if (kind === 'office') {
+        noPreview('Office documents can\u2019t be previewed here yet. Download the file to open it.');
+      } else if (kind === 'bin') {
+        noPreview('No preview is available for this file type.');
+      } else if (kind === 'md') {
+        const src = await loadText();
+        if (src == null) return;
+        mdSrc = src; langLabel.textContent = 'Markdown';
+        mdBtn.classList.remove('hidden');
+        mdMode = 'edit'; await toggleMd();
+      } else {
+        const src = await loadText();
+        if (src == null) return;
+        await mountEditor(src);
+      }
+    } catch (e) { noPreview('Preview failed: ' + e.message); }
+  })();
+  return m;
 }

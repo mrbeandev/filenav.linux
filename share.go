@@ -336,6 +336,29 @@ func (s *Server) handlePubZip(w http.ResponseWriter, r *http.Request) {
 	s.streamZip(w, r, dir, names, zipName)
 }
 
+func (s *Server) handlePubText(w http.ResponseWriter, r *http.Request) {
+	sh, ok := s.getShare(w, r, true)
+	if !ok {
+		return
+	}
+	if sh.UploadOnly {
+		jsonErr(w, 403, "not allowed")
+		return
+	}
+	rel := sh.Path
+	if sh.IsDir {
+		if rel, ok = subPath(sh, r.URL.Query().Get("path")); !ok || rel == sh.Path {
+			jsonErr(w, 400, "invalid path")
+			return
+		}
+	}
+	content, st, ok := s.readText(w, rel)
+	if !ok {
+		return
+	}
+	writeJSON(w, map[string]any{"content": content, "mtime": st.ModTime(), "size": st.Size()})
+}
+
 func (s *Server) handlePubUploadInit(w http.ResponseWriter, r *http.Request) {
 	if !csrfOK(r) {
 		jsonErr(w, http.StatusForbidden, "missing CSRF header")

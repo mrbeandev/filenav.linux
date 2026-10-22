@@ -1,0 +1,28 @@
+{
+  "name": "filenav-ui-vendor",
+  "private": true,
+  "description": "Third-party browser libraries bundled into web/vendor (run: npm ci && npm run build). Output is committed so Go builds need no Node.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.4",
+    "@codemirror/commands": "^6",
+    "@codemirror/language": "^6",
+    "@codemirror/language-data": "^6",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6",
+    "@codemirror/theme-one-dark": "^6",
+    "@codemirror/view": "^6",
+    "@lezer/highlight": "^1",
+    "codemirror": "^6",
+    "dompurify": "^3",
+    "heic2any": "^0.0.4",
+    "marked": "^18",
+    "utif": "^3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28"
+  }
+}

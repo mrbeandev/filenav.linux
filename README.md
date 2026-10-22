@@ -16,7 +16,9 @@ It uses **~8 MB RAM idle and ~10 MB** while serving several large downloads at o
   - Visitors can never overwrite or delete existing files.
   - Links keep working when you rename or move the shared item.
 - **Auth**: a single passcode or **passkeys** (Face ID / Touch ID / Windows Hello / phone / YubiKey). You can turn on passkey-only mode, list sessions and revoke them.
-- Previews for images, video, audio and PDF. Works on mobile. Light and dark themes.
+- **Viewer/editor**: CodeMirror 6 code editor (syntax highlighting for 100+ languages, search, folding) for *any* text file. Text vs binary is detected by content, so `.gitignore`, `.env`, `Makefile`, etc. open too. Markdown is rendered (sanitised) with an edit toggle.
+- Previews: images (including HEIC/HEIF and TIFF, decoded in a sandboxed iframe), video and audio streaming with seeking, PDF. Previous/next navigation with arrow keys or swipe.
+- Works on mobile. Light and dark themes.
 - Security: brute-force rate limiting, CSRF protection, traversal-safe filesystem access (Go `os.Root`), and sandboxed previews.
 
 ## Quick start
@@ -56,6 +58,10 @@ filenav passcode         # set/change passcode (logs everyone out)
 filenav reset-passkeys   # recovery if you lose your passkey in passkey-only mode
 filenav logout-all
 ```
+
+## Frontend libraries
+The third-party browser libraries (CodeMirror, marked, DOMPurify, heic2any, UTIF) are pre-bundled into `web/vendor/` and committed, so building filenav only needs Go.
+To update them: `cd ui-vendor && npm ci && npm run build`.
 
 ## Notes
 - State (sessions, passkeys, shares) lives in `$FILENAV_DATA/state.json`. Back it up along with your files.

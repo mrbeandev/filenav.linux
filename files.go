@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -131,6 +132,23 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------- downloads ----------
+
+// Explicit MIME table so media plays correctly even on minimal servers that
+// have no /etc/mime.types.
+func init() {
+	for ext, t := range map[string]string{
+		".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+		".mkv": "video/x-matroska", ".ogv": "video/ogg", ".avi": "video/x-msvideo", ".ts": "video/mp2t",
+		".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".wav": "audio/wav", ".flac": "audio/flac",
+		".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".weba": "audio/webm",
+		".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".jfif": "image/jpeg", ".png": "image/png", ".apng": "image/apng",
+		".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".bmp": "image/bmp", ".ico": "image/x-icon",
+		".svg": "image/svg+xml", ".heic": "image/heic", ".heif": "image/heif", ".tif": "image/tiff", ".tiff": "image/tiff",
+		".pdf": "application/pdf", ".vtt": "text/vtt", ".srt": "text/plain",
+	} {
+		_ = mime.AddExtensionType(ext, t)
+	}
+}
 
 // inlineSafe returns a content type that is safe to render inline on our origin.
 func inlineSafe(name string) (ctype string, sandbox bool) {
@@ -347,7 +365,64 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 // ---------- text editing ----------
 
-const maxTextEdit = 5 << 20
+const (
+	maxTextEdit = 10 << 20 // largest file opened in the editor
+	sniffLen    = 8 << 10
+)
+
+// looksBinary reports whether b (a file prefix) is binary rather than text.
+func looksBinary(b []byte) bool {
+	if bytes.IndexByte(b, 0) >= 0 {
+		return true
+	}
+	// tolerate a multi-byte rune cut off at the end of the sniff window
+	for i := 0; i < 4 && len(b) > 0 && !utf8.Valid(b); i++ {
+		b = b[:len(b)-1]
+	}
+	if !utf8.Valid(b) {
+		return true
+	}
+	ctrl := 0
+	for _, c := range b {
+		if c < 0x20 && c != '\n' && c != '\r' && c != '\t' && c != '\f' && c != 0x1b {
+			ctrl++
+		}
+	}
+	return len(b) > 0 && ctrl*100/len(b) > 2
+}
+
+// readText returns the file content if it is a reasonably sized text file.
+func (s *Server) readText(w http.ResponseWriter, rel string) (string, os.FileInfo, bool) {
+	f, err := s.root.Open(fsPath(rel))
+	if err != nil {
+		fsErr(w, err)
+		return "", nil, false
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		fsErr(w, err)
+		return "", nil, false
+	}
+	if st.IsDir() {
+		jsonErr(w, 400, "is a directory")
+		return "", nil, false
+	}
+	if st.Size() > maxTextEdit {
+		jsonErr(w, http.StatusRequestEntityTooLarge, "file is too large to open as text (max 10 MiB)")
+		return "", nil, false
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxTextEdit+1))
+	if err != nil {
+		fsErr(w, err)
+		return "", nil, false
+	}
+	if looksBinary(b[:min(len(b), sniffLen)]) || !utf8.Valid(b) {
+		jsonErr(w, http.StatusUnsupportedMediaType, "binary file")
+		return "", nil, false
+	}
+	return string(b), st, true
+}
 
 func (s *Server) handleTextGet(w http.ResponseWriter, r *http.Request) {
 	rel, err := cleanRel(r.URL.Query().Get("path"))
@@ -355,25 +430,11 @@ func (s *Server) handleTextGet(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 400, "invalid path")
 		return
 	}
-	st, err := s.root.Stat(rel)
-	if err != nil {
-		fsErr(w, err)
+	content, st, ok := s.readText(w, rel)
+	if !ok {
 		return
 	}
-	if st.IsDir() || st.Size() > maxTextEdit {
-		jsonErr(w, 400, "not an editable file (max 5 MiB)")
-		return
-	}
-	b, err := s.root.ReadFile(rel)
-	if err != nil {
-		fsErr(w, err)
-		return
-	}
-	if !utf8.Valid(b) {
-		jsonErr(w, 400, "file is not UTF-8 text")
-		return
-	}
-	writeJSON(w, map[string]any{"content": string(b), "mtime": st.ModTime()})
+	writeJSON(w, map[string]any{"content": content, "mtime": st.ModTime(), "size": st.Size()})
 }
 
 func (s *Server) handleTextPut(w http.ResponseWriter, r *http.Request) {
