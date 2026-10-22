@@ -44,6 +44,7 @@ const P = {
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   more: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  eyeOff: '<path d="M10.7 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-2.9 3.9M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M2 2l20 20"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
@@ -57,6 +58,9 @@ const P = {
   play: '<path d="m6 3 14 9-14 9z"/>',
   fileplus: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 18v-6M9 15h6"/>',
   left: '<path d="m15 18-6-6 6-6"/>',
+  chart: '<path d="M21 12A9 9 0 1 1 12 3v9z"/><path d="M21 12a9 9 0 0 0-9-9" opacity=".45"/>',
+  disk: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 14h.01M10 14h.01"/>',
+  sort: '<path d="M3 6h18M6 12h12M10 18h4"/>',
   right: '<path d="m9 18 6-6-6-6"/>',
   wrap: '<path d="M3 6h18M3 12h15a3 3 0 1 1 0 6h-4M3 18h7"/><path d="m16 16-2 2 2 2"/>',
   logo: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor" fill-opacity=".2"/><path d="m10 13 2-2 2 2M12 11v5"/>',
@@ -88,6 +92,12 @@ function fileIcon(name, isDir) {
   const k = kindOf(name, isDir);
   const map = { dir: 'folder', img: 'img', vid: 'vid', aud: 'aud', arc: 'arc', code: 'code', doc: 'doc', file: 'file' };
   return iconEl(map[k], 'fi ' + k);
+}
+// rounded tinted tile with the file-type glyph (list rows)
+function fileThumb(name, isDir) {
+  const k = kindOf(name, isDir);
+  const map = { dir: 'folder', img: 'img', vid: 'vid', aud: 'aud', arc: 'arc', code: 'code', doc: 'doc', file: 'file' };
+  return h('span', { class: 'thumb ' + k, html: icon(map[k]) });
 }
 const extSet = str => new Set(str.split(' '));
 const K_IMG = extSet('jpg jpeg jfif pjpeg png apng gif webp avif bmp ico svg');
@@ -213,11 +223,11 @@ function prompt2(title, label, value = '', { okLabel = 'OK', selectBase = false 
   });
 }
 
-function confirm2(title, msg, okLabel = 'Delete', cls = 'danger') {
+function confirm2(title, msg, okLabel = 'Delete', cls = 'danger', cancelLabel = 'Cancel') {
   return new Promise(resolve => {
     let done = false;
     modal(title, h('div', { style: { whiteSpace: 'pre-wrap' } }, msg), {
-      buttons: [{ label: 'Cancel', onclick: c => c() }, { label: okLabel, cls: 'primary ' + cls, onclick: c => { done = true; c(); resolve(true); } }],
+      buttons: [{ label: cancelLabel, onclick: c => c() }, { label: okLabel, cls: 'primary ' + cls, onclick: c => { done = true; c(); resolve(true); } }],
       onClose: () => { if (!done) resolve(false); },
     });
   });
@@ -427,6 +437,22 @@ function scrollCrumbsToEnd(c) {
     c.onscroll = fade;
     fade();
   });
+}
+
+// password input with a show/hide toggle; returns { el, input }
+function passwordField(attrs = {}) {
+  const input = h('input', { class: 'input', type: 'password', autocapitalize: 'off', spellcheck: 'false', ...attrs });
+  const btn = h('button', { type: 'button', class: 'pw-eye', title: 'Show', 'aria-label': 'Show password', 'aria-pressed': 'false', html: icon('eye') });
+  btn.addEventListener('mousedown', e => e.preventDefault()); // keep focus in the field
+  btn.onclick = () => {
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.innerHTML = icon(show ? 'eyeOff' : 'eye');
+    btn.title = show ? 'Hide' : 'Show';
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    btn.setAttribute('aria-pressed', String(show));
+  };
+  return { el: h('div', { class: 'pw-wrap' }, input, btn), input };
 }
 
 const joinPath = (a, b) => (a ? a + '/' : '') + b;

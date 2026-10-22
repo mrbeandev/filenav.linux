@@ -218,6 +218,12 @@ func runServe(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go srv.janitor(ctx)
+	analyzerDone := make(chan struct{})
+	if srv.analyzer != nil {
+		go func() { srv.analyzer.Run(ctx); close(analyzerDone) }()
+	} else {
+		close(analyzerDone)
+	}
 
 	errc := make(chan error, 1)
 	go func() {
@@ -250,7 +256,12 @@ func runServe(args []string) error {
 	log.Print("shutting down")
 	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return hs.Shutdown(sctx)
+	err = hs.Shutdown(sctx)
+	select { // let the analyzer save its index
+	case <-analyzerDone:
+	case <-sctx.Done():
+	}
+	return err
 }
 
 func readSecret(prompt string) string {

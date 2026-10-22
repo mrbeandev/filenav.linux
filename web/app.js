@@ -27,7 +27,8 @@ async function boot() {
 function renderLogin() {
   const err = h('div', { class: 'err' });
   const hasPasskeys = !!window.PublicKeyCredential && S.me.passkeys_on && S.me.passkeys > 0;
-  const pass = h('input', { class: 'input', type: 'password', placeholder: 'Passcode', autocomplete: 'current-password' });
+  const pf = passwordField({ placeholder: 'Passcode', autocomplete: 'current-password', 'aria-label': 'Passcode' });
+  const pass = pf.input;
   const passForm = h('form', {
     class: 'pass-form' + (hasPasskeys ? ' hidden' : ''),
     onsubmit: async e => {
@@ -35,7 +36,7 @@ function renderLogin() {
       try { await api('POST', '/api/login', { passcode: pass.value }); location.reload(); }
       catch (x) { err.textContent = x.message; pass.select(); }
     }
-  }, pass, h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Unlock'));
+  }, pf.el, h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Unlock'));
   const showPass = () => { passForm.classList.remove('hidden'); fallback.classList.add('hidden'); pass.focus(); };
   const fallback = h('button', { class: 'btn ghost small', type: 'button', style: { justifyContent: 'center' }, onclick: showPass }, 'Use passcode instead');
   const pkBtn = h('button', { class: 'btn primary', type: 'button', style: { justifyContent: 'center' }, onclick: () => passkeyLogin(err, false, onPkFail), html: icon('key') + 'Sign in with passkey' });
@@ -73,33 +74,43 @@ async function passkeyLogin(err, silent, onFail) {
 
 // ---------- app shell ----------
 function startApp() {
-  const searchInput = h('input', { class: 'input search', type: 'search', placeholder: 'Search in this folder…' });
+  const searchInput = h('input', { class: 'input search', type: 'search', placeholder: 'Search', 'aria-label': 'Search in this folder' });
   let st;
   searchInput.addEventListener('input', () => {
     clearTimeout(st);
     const q = searchInput.value.trim();
     st = setTimeout(() => q ? doSearch(q) : (S.search = null, render()), 350);
   });
+  S.searchInput = searchInput;
+  const nav = (id, ic, label, fn) => h('button', { class: 'side-item', 'data-view': id, onclick: fn, html: icon(ic) + `<span>${label}</span>` });
+  const tab = (id, ic, label, fn) => h('button', { 'data-view': id, onclick: fn, html: icon(ic) + `<span>${label}</span>` });
+  const goFiles = () => { S.search = null; searchInput.value = ''; location.hash.startsWith('#/') ? go('') : (location.hash = '#/'); };
+  const goStorage = () => { location.hash = '#storage'; };
+  const logout = async () => { await api('POST', '/api/logout'); location.reload(); };
   $('#root').replaceChildren(h('div', { class: 'app' },
-    h('header', { class: 'top' },
-      h('a', { class: 'brand', href: '#/', onclick: e => { e.preventDefault(); searchInput.value = ''; S.search = null; go(''); } }, iconEl('logo', 'logo'), h('span', { class: 'hide-sm' }, S.me.title)),
-      h('div', { class: 'grow' }, searchInput),
-      h('span', { class: 'disk hide-md', id: 'disk' }),
-      S.me.shares_on ? h('button', { class: 'btn ghost', title: 'Shared links', onclick: showShares, html: icon('link') + '<span class="lbl">Shares</span>' }) : null,
-      S.me.auth ? h('button', { class: 'btn ghost', title: 'Settings', onclick: showSettings, html: icon('gear') }) : null,
-      S.me.read_only ? h('span', { class: 'badge', title: 'Read-only mode (config)' }, 'read-only') : null,
-      S.me.auth ? h('button', { class: 'btn ghost', title: 'Log out', onclick: async () => { await api('POST', '/api/logout'); location.reload(); }, html: icon('logout') }) : null),
-    h('div', { class: 'toolbar' },
-      h('nav', { class: 'crumbs', id: 'crumbs' }),
-      h('div', { class: 'tools' },
-        S.me.read_only ? null : h('button', { class: 'btn primary', title: 'Upload files', onclick: async () => upload(await pickFiles()), html: icon('upload') + '<span class="lbl">Upload</span>' }),
-        S.me.read_only ? null : h('button', { class: 'btn', title: 'Upload folder', onclick: async () => upload(await pickFiles(true)), html: icon('folder') + '<span class="lbl">Folder</span>' }),
-        S.me.read_only ? null : h('button', { class: 'btn', title: 'New folder', onclick: newFolder, html: icon('folderPlus') }),
-        S.me.read_only ? null : h('button', { class: 'btn', title: 'New text file', onclick: newFile, html: icon('fileplus') }),
-        !S.me.shares_on ? null : h('button', { class: 'btn', title: 'Share this folder', onclick: () => shareDialog(S.path, true), html: icon('share') }),
-        h('button', { class: 'btn ghost', title: 'Refresh', onclick: () => load(), html: icon('refresh') }))),
-    h('main', { id: 'main' }),
-    h('div', { id: 'selbar', class: 'selbar hidden' })));
+    h('aside', { class: 'sidebar' },
+      h('a', { class: 'brand', href: '#/', onclick: e => { e.preventDefault(); goFiles(); } }, iconEl('logo', 'logo'), h('span', {}, S.me.title)),
+      h('div', { class: 'side-h' }, 'Library'),
+      nav('files', 'folder', 'Files', goFiles),
+      S.me.analyzer_on ? nav('storage', 'chart', 'Storage', goStorage) : null,
+      S.me.shares_on ? nav('shares', 'link', 'Shared Links', showShares) : null,
+      h('div', { class: 'side-h' }, 'Account'),
+      S.me.auth ? nav('settings', 'gear', 'Settings', showSettings) : null,
+      S.me.auth ? nav('logout', 'logout', 'Log Out', logout) : null,
+      h('div', { class: 'side-foot' }, h('div', { class: 'meter', id: 'disk-meter' }), h('span', { class: 'disk', id: 'disk' }),
+        S.me.read_only ? h('span', { class: 'badge' }, 'Read-only') : null)),
+    h('div', { class: 'content' },
+      h('header', { class: 'navbar', id: 'navbar' },
+        h('button', { class: 'btn ghost back hidden', id: 'back', 'aria-label': 'Back', onclick: () => history.back(), html: icon('left') + '<span id="back-l"></span>' }),
+        h('div', { class: 'nav-title', id: 'nav-title' }),
+        h('div', { class: 'nav-actions', id: 'nav-actions' })),
+      h('main', { id: 'main' }),
+      h('div', { id: 'selbar', class: 'selbar hidden' })),
+    h('nav', { class: 'tabbar' },
+      tab('files', 'folder', 'Files', goFiles),
+      S.me.analyzer_on ? tab('storage', 'chart', 'Storage', goStorage) : null,
+      S.me.shares_on ? tab('shares', 'link', 'Shared', showShares) : null,
+      S.me.auth ? tab('settings', 'gear', 'Settings', showSettings) : null)));
 
   uploader = new Uploader({
     initURL: '/api/upload/init', chunkURL: uid => '/api/upload/' + uid, chunkSize: S.me.chunk_size,
@@ -107,24 +118,40 @@ function startApp() {
     onFileDone: () => { clearTimeout(S._rt); S._rt = setTimeout(() => load(true), 400); },
     onAllDone: () => { load(true); loadDisk(); },
   });
-  setupDropTarget(files => upload(files), () => !S.me.read_only);
+  setupDropTarget(files => upload(files), () => !S.me.read_only && S.view === 'files');
   window.addEventListener('beforeunload', e => { if (uploader.active) { e.preventDefault(); e.returnValue = ''; } });
-  window.addEventListener('hashchange', () => { const p = pathFromHash(); if (p !== S.path) { S.search = null; searchInput.value = ''; load(); } });
+  window.addEventListener('hashchange', route);
   document.addEventListener('keydown', onKey);
   document.addEventListener('click', e => { if (!e.target.closest('.menu')) closeMenu(); });
-  load();
+  $('#main').addEventListener('scroll', e => $('#navbar').classList.toggle('scrolled', e.target.scrollTop > 40), { passive: true });
+  route();
   loadDisk();
+}
+
+// hash routes: #/<path> = files, #storage[/<path>] = storage analyzer
+function route() {
+  const hsh = location.hash;
+  const view = hsh.startsWith('#storage') ? 'storage' : 'files';
+  S.view = view;
+  $$('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  $('#navbar').classList.remove('scrolled');
+  $('#main').scrollTop = 0;
+  if (view === 'storage') { S.sel.clear(); S.clipboard = null; renderSelbar(); return showStorage(decodeURIComponent(hsh.replace(/^#storage\/?/, ''))); }
+  const p = pathFromHash();
+  if (p !== S.path || !S.loaded) { S.search = null; if (S.searchInput) S.searchInput.value = ''; }
+  load();
 }
 
 const pathFromHash = () => decodeURIComponent(location.hash.replace(/^#\/?/, '')).replace(/\/+$/, '');
 function go(p) { location.hash = '#/' + p.split('/').map(encodeURIComponent).join('/'); }
 
 async function load(keepSel) {
+  if (S.view === 'storage') { setTimeout(route, 900); return; } // analyzer applies changes within ~1 s
   S.path = pathFromHash();
   if (!keepSel) S.sel.clear();
   try {
-    const [d, sh] = await Promise.all([api('GET', '/api/list?path=' + encPath(S.path)), api('GET', '/api/shares')]);
-    S.entries = d.entries; S.shares = sh.shares;
+    const [d, sh] = await Promise.all([api('GET', '/api/list?path=' + encPath(S.path)), S.me.shares_on ? api('GET', '/api/shares') : { shares: [] }]);
+    S.entries = d.entries; S.shares = sh.shares; S.loaded = true;
     for (const n of [...S.sel]) if (!S.entries.some(e => e.name === n)) S.sel.delete(n);
   } catch (e) {
     if (e.status === 401) return location.reload();
@@ -136,7 +163,12 @@ async function load(keepSel) {
 }
 
 async function loadDisk() {
-  try { const d = await api('GET', '/api/disk'); $('#disk').textContent = `${fmtSize(d.free)} free of ${fmtSize(d.total)}`; } catch { }
+  try {
+    const d = await api('GET', '/api/disk');
+    $('#disk').textContent = `${fmtSize(d.free)} available of ${fmtSize(d.total)}`;
+    const used = 1 - d.free / d.total;
+    $('#disk-meter').replaceChildren(h('i', { style: { width: (used * 100).toFixed(1) + '%', background: used > .9 ? 'var(--red)' : used > .75 ? 'var(--orange)' : 'var(--acc)' } }));
+  } catch { }
 }
 
 async function doSearch(q) {
@@ -149,69 +181,117 @@ async function doSearch(q) {
 }
 
 // ---------- rendering ----------
+function setNav(title, backLabel, actions) {
+  $('#nav-title').textContent = title;
+  const back = $('#back');
+  back.classList.toggle('hidden', !backLabel);
+  if (backLabel) $('#back-l').textContent = backLabel;
+  $('#nav-actions').replaceChildren(...(actions || []).filter(Boolean));
+}
+
+function fileActions() {
+  const ro = S.me.read_only;
+  return [
+    ro ? null : h('button', { class: 'btn ghost', title: 'New folder', onclick: newFolder, html: icon('folderPlus') }),
+    ro ? null : h('button', { class: 'btn ghost', title: 'New text file', onclick: newFile, html: icon('fileplus') }),
+    S.me.shares_on ? h('button', { class: 'btn ghost', title: 'Share this folder', onclick: () => shareDialog(S.path, true), html: icon('share') }) : null,
+    ro ? null : h('button', { class: 'btn primary', title: 'Upload', onclick: e => uploadMenu(e), html: icon('upload') + '<span class="lbl hide-sm">Upload</span>' }),
+  ];
+}
+
+function uploadMenu(ev) {
+  ev.stopPropagation();
+  closeMenu();
+  const m = h('div', { class: 'menu' },
+    h('button', { onclick: async () => { closeMenu(); upload(await pickFiles()); }, html: icon('upload') + '<span>Upload Files</span>' }),
+    h('button', { onclick: async () => { closeMenu(); upload(await pickFiles(true)); }, html: icon('folder') + '<span>Upload Folder</span>' }));
+  if (matchMedia('(max-width: 640px)').matches) document.body.append(h('div', { class: 'menu-bg', onclick: closeMenu }));
+  document.body.append(m);
+  const r = ev.currentTarget.getBoundingClientRect(), mr = m.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.right - mr.width, innerWidth - mr.width - 8)) + 'px';
+  m.style.top = (r.bottom + 6) + 'px';
+}
+
 function render() {
-  renderCrumbs();
+  if (S.view !== 'files') return;
+  const parts = S.path ? S.path.split('/') : [];
+  const title = parts.length ? parts[parts.length - 1] : 'Files';
+  setNav(title, parts.length ? (parts.length > 1 ? parts[parts.length - 2] : 'Files') : null, fileActions());
   renderSelbar();
   const main = $('#main');
-  if (S.search) return renderSearch(main);
+  const crumbs = h('nav', { class: 'crumbs', id: 'crumbs' });
+  const head = [crumbs, h('h1', { class: 'large-title' }, title)];
+  const search = h('div', { class: 'searchbar' }, iconEl('search'), S.searchInput);
+  if (S.search) {
+    main.replaceChildren(...head, search, renderSearch());
+    renderCrumbs();
+    return;
+  }
   const list = [...S.entries].sort((a, b) => {
     if (a.dir !== b.dir) return a.dir ? -1 : 1;
     const k = S.sort.key;
-    let r = k === 'name' ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    const r = k === 'name' ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
       : k === 'size' ? a.size - b.size : new Date(a.mtime) - new Date(b.mtime);
     return r * S.sort.dir;
   });
+  const nd = list.filter(e => e.dir).length, nf = list.length - nd;
+  const sub = h('p', { class: 'subtitle' }, [nd ? `${nd} folder${nd > 1 ? 's' : ''}` : '', nf ? `${nf} file${nf > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ') || 'Empty folder');
   if (!list.length) {
-    main.replaceChildren(h('div', { class: 'empty', html: icon('folder') + '<p>This folder is empty.<br>Drag &amp; drop files here or use Upload.</p>' }));
+    main.replaceChildren(...head, sub, h('div', { class: 'empty', html: icon('folder') + '<p>This folder is empty.<br>Drop files here or tap Upload.</p>' }));
+    renderCrumbs();
     return;
   }
   const sharedPaths = new Set(S.shares.filter(s => !s.expired).map(s => s.path));
-  const allSel = list.length && list.every(e => S.sel.has(e.name));
-  const th = (key, label, cls = '') => h('th', { class: cls, onclick: () => { S.sort = { key, dir: S.sort.key === key ? -S.sort.dir : 1 }; render(); } },
+  const allSel = list.every(e => S.sel.has(e.name));
+  const sortBtn = (key, label) => h('button', { class: S.sort.key === key ? 'on' : null, onclick: () => { S.sort = { key, dir: S.sort.key === key ? -S.sort.dir : (key === 'name' ? 1 : -1) }; render(); } },
     label + (S.sort.key === key ? (S.sort.dir > 0 ? ' ↑' : ' ↓') : ''));
-  main.replaceChildren(h('table', { class: 'files' },
-    h('thead', {}, h('tr', {},
-      h('th', { class: 'c' }, h('input', { type: 'checkbox', checked: allSel, onclick: e => { e.stopPropagation(); list.forEach(x => e.target.checked ? S.sel.add(x.name) : S.sel.delete(x.name)); render(); } })),
-      th('name', 'Name'), th('size', 'Size', 'num hide-sm'), th('mtime', 'Modified', 'num hide-sm'), h('th', {}))),
-    h('tbody', {}, list.map(e => row(e, joinPath(S.path, e.name), sharedPaths)))));
+  main.replaceChildren(...head, sub, search,
+    h('div', { class: 'group-h' },
+      h('input', { type: 'checkbox', class: 'sel-circle', title: 'Select all', checked: allSel, onclick: e => { list.forEach(x => e.target.checked ? S.sel.add(x.name) : S.sel.delete(x.name)); render(); } }),
+      h('span', { class: 'grow' }), 'Sort:', sortBtn('name', 'Name'), sortBtn('size', 'Size'), sortBtn('mtime', 'Date')),
+    h('div', { class: 'group' }, list.map(e => row(e, joinPath(S.path, e.name), sharedPaths))));
+  renderCrumbs();
 }
 
-function row(e, full, sharedPaths) {
+function row(e, full, sharedPaths, extraLine) {
   const sel = S.sel.has(e.name);
-  const open = ev => { ev.preventDefault(); openEntry(e, full, tr._list); };
-  const tr = h('tr', {
-    class: 'f' + (sel ? ' sel' : ''),
+  const cell = h('div', {
+    class: 'cell' + (sel ? ' sel' : ''),
     oncontextmenu: ev => { ev.preventDefault(); contextMenu(ev, e, full); },
   },
-    h('td', { class: 'c' }, h('input', { type: 'checkbox', checked: sel, onclick: ev => { ev.stopPropagation(); ev.target.checked ? S.sel.add(e.name) : S.sel.delete(e.name); render(); } })),
-    h('td', { class: 'name' }, h('a', { href: e.dir ? '#/' + full.split('/').map(encodeURIComponent).join('/') : dlURL(full), onclick: open, title: e.name },
-      fileIcon(e.name, e.dir), h('span', { class: 'nm' }, h('span', {}, e.name),
-        h('span', { class: 'meta' }, [e.dir ? 'Folder' : fmtSize(e.size), fmtDate(e.mtime)].filter(Boolean).join(' · ')))),
-      sharedPaths && sharedPaths.has(full) ? h('span', { class: 'badge share' }, 'shared') : null,
-      e.link ? h('span', { class: 'badge' }, 'link') : null),
-    h('td', { class: 'num hide-sm' }, e.dir ? '—' : fmtSize(e.size)),
-    h('td', { class: 'num hide-sm' }, fmtDate(e.mtime)),
-    h('td', { class: 'act' }, h('button', { class: 'btn ghost', html: icon('more'), onclick: ev => { ev.stopPropagation(); contextMenu(ev, e, full); } })));
-  return tr;
+    h('a', { class: 'open', href: e.dir ? '#/' + full.split('/').map(encodeURIComponent).join('/') : dlURL(full), title: e.name, 'aria-label': e.name,
+      onclick: ev => { ev.preventDefault(); if (S.sel.size && !e.dir) { toggleSel(e.name); return; } openEntry(e, full, cell._list); } }),
+    extraLine ? null : h('input', { type: 'checkbox', class: 'sel-circle', checked: sel, 'aria-label': 'Select ' + e.name, onclick: ev => { ev.stopPropagation(); toggleSel(e.name); } }),
+    fileThumb(e.name, e.dir),
+    h('div', { class: 'txt' },
+      h('span', { class: 't1' }, e.name,
+        sharedPaths && sharedPaths.has(full) ? h('span', { class: 'badge share' }, 'Shared') : null,
+        e.link ? h('span', { class: 'badge' }, 'Link') : null),
+      h('span', { class: 't2' }, extraLine || [e.dir ? 'Folder' : fmtSize(e.size), fmtDate(e.mtime)].filter(Boolean).join(' · '))),
+    h('button', { class: 'btn ghost more', 'aria-label': 'More actions', html: icon('more'), onclick: ev => { ev.stopPropagation(); contextMenu(ev, e, full); } }),
+    e.dir ? h('span', { class: 'acc', html: icon('right') }) : null);
+  return cell;
 }
 
-function renderSearch(main) {
+function toggleSel(name) { S.sel.has(name) ? S.sel.delete(name) : S.sel.add(name); render(); }
+
+function renderSearch() {
   const { results, truncated, q } = S.search;
-  main.replaceChildren(h('div', { class: 'small dim', style: { padding: '10px 16px' } },
-    `${results.length} result(s) for “${q}”` + (truncated ? ' (truncated — refine your search)' : '')),
-    results.length ? h('table', { class: 'files' }, h('tbody', {}, results.map(r => {
-      const tr = row(r, r.path, null);
-      tr._list = results.filter(x => !x.dir).map(x => ({ e: x, full: x.path }));
-      tr.firstChild.replaceChildren();
-      const dir = r.path.split('/').slice(0, -1).join('/');
-      tr.children[1].append(h('div', { class: 'small dim' }, '/' + dir));
-      return tr;
-    }))) : null);
+  const list = results.filter(x => !x.dir).map(x => ({ e: x, full: x.path }));
+  return h('div', {},
+    h('div', { class: 'group-h' }, `${results.length} result${results.length === 1 ? '' : 's'} for “${q}”` + (truncated ? ' (refine your search)' : '')),
+    results.length ? h('div', { class: 'group' }, results.map(r => {
+      const c = row(r, r.path, null, '/' + r.path.split('/').slice(0, -1).join('/'));
+      c._list = list;
+      return c;
+    })) : h('div', { class: 'empty', html: icon('search') + '<p>No results.</p>' }));
 }
 
 function renderCrumbs() {
-  const parts = S.path ? S.path.split('/') : [];
   const c = $('#crumbs');
+  if (!c) return;
+  const parts = S.path ? S.path.split('/') : [];
+  if (!parts.length) { c.replaceChildren(); return; }
   const kids = [h('a', { href: '#/', html: icon('home'), title: 'Home' })];
   parts.forEach((p, i) => {
     kids.push(h('span', { class: 's' }, '/'));
@@ -224,7 +304,7 @@ function renderCrumbs() {
 function renderSelbar() {
   const bar = $('#selbar');
   const n = S.sel.size;
-  if (!n && !S.clipboard) { bar.replaceChildren(); bar.className = 'selbar hidden'; document.body.classList.remove('has-selbar'); return; }
+  if ((!n && !S.clipboard) || S.view !== 'files') { bar.replaceChildren(); bar.className = 'selbar hidden'; document.body.classList.remove('has-selbar'); return; }
   bar.className = 'selbar';
   document.body.classList.add('has-selbar');
   const paths = [...S.sel].map(x => joinPath(S.path, x));
@@ -233,18 +313,133 @@ function renderSelbar() {
     const size = S.entries.filter(e => S.sel.has(e.name) && !e.dir).reduce((a, e) => a + e.size, 0);
     kids.push(h('div', { class: 'sel-info' }, h('b', {}, `${n} selected`), size ? h('span', { class: 'small dim' }, fmtSize(size)) : null), h('span', { class: 'grow' }),
       h('button', { class: 'btn', title: 'Download', onclick: () => downloadSel(), html: icon('download') + '<span class="lbl">Download</span>' }),
-      S.me.read_only ? null : h('button', { class: 'btn', title: 'Cut (move)', onclick: () => { S.clipboard = { op: 'move', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('move') + '<span class="lbl">Move</span>' }),
-      S.me.read_only ? null : h('button', { class: 'btn', title: 'Copy', onclick: () => { S.clipboard = { op: 'copy', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('copy') + '<span class="lbl">Copy</span>' }),
+      S.me.read_only ? null : h('button', { class: 'btn', title: 'Cut (move)', onclick: () => { S.clipboard = { op: 'move', paths }; S.sel.clear(); render(); toast('Open a folder, then Paste'); }, html: icon('move') + '<span class="lbl">Move</span>' }),
+      S.me.read_only ? null : h('button', { class: 'btn', title: 'Copy', onclick: () => { S.clipboard = { op: 'copy', paths }; S.sel.clear(); render(); toast('Open a folder, then Paste'); }, html: icon('copy') + '<span class="lbl">Copy</span>' }),
       S.me.read_only ? null : h('button', { class: 'btn', title: 'Move / copy to…', onclick: () => moveDialog(paths), html: icon('folder') + '<span class="lbl">Move to…</span>' }),
       S.me.read_only ? null : h('button', { class: 'btn danger', title: 'Delete', onclick: () => del(paths), html: icon('trash') + '<span class="lbl">Delete</span>' }),
       h('button', { class: 'btn ghost', title: 'Clear selection (Esc)', onclick: () => { S.sel.clear(); render(); }, html: icon('x') }));
   } else {
     const c = S.clipboard;
-    kids.push(h('div', { class: 'sel-info' }, h('b', {}, `${c.paths.length} item(s) to ${c.op}`), h('span', { class: 'small dim' }, 'Open the destination folder, then paste')), h('span', { class: 'grow' }),
-      h('button', { class: 'btn primary', onclick: paste, html: icon('check') + `Paste here` }),
+    kids.push(h('div', { class: 'sel-info' }, h('b', {}, `${c.paths.length} item${c.paths.length > 1 ? 's' : ''} to ${c.op}`), h('span', { class: 'small dim' }, 'Open the destination, then paste')), h('span', { class: 'grow' }),
+      h('button', { class: 'btn primary', onclick: paste, html: icon('check') + 'Paste Here' }),
       h('button', { class: 'btn ghost', title: 'Cancel', onclick: () => { S.clipboard = null; render(); }, html: icon('x') }));
   }
   bar.replaceChildren(...kids);
+}
+
+// ---------- storage analyzer view ----------
+const CAT_COLORS = { Videos: 'var(--pink)', Images: 'var(--green)', Audio: 'var(--purple)', Documents: 'var(--teal)', Archives: 'var(--orange)', Code: 'var(--indigo)', Other: 'var(--gray)' };
+let storTimer;
+
+async function showStorage(rel) {
+  clearTimeout(storTimer);
+  if (S.view !== 'storage') return;
+  let d;
+  try { d = await api('GET', '/api/analyze?path=' + encPath(rel)); }
+  catch (e) { if (e.status === 401) return location.reload(); toast(e.message, true); return; }
+  if (S.view !== 'storage' || location.hash.replace(/^#storage\/?/, '') !== encodeURIComponent(rel).replace(/%2F/g, '/') && decodeURIComponent(location.hash.replace(/^#storage\/?/, '')) !== rel) return;
+  const parts = rel ? rel.split('/') : [];
+  const title = parts.length ? parts[parts.length - 1] : 'Storage';
+  const goStor = p => { location.hash = '#storage' + (p ? '/' + p.split('/').map(encodeURIComponent).join('/') : ''); };
+  setNav(title, parts.length ? (parts.length > 1 ? parts[parts.length - 2] : 'Storage') : null, [
+    d.scanning
+      ? h('button', { class: 'btn danger', title: 'Stop the running scan', onclick: () => cancelScan(rel), html: icon('x') + '<span class="lbl hide-sm">Stop Scan</span>' })
+      : h('button', { class: 'btn', title: 'Full rescan (normally not needed: the index updates itself)', onclick: () => confirmRescan(rel, d), html: icon('refresh') + '<span class="lbl hide-sm">Rescan</span>' }),
+  ]);
+  const main = $('#main');
+  const crumbs = h('nav', { class: 'crumbs' });
+  if (parts.length) {
+    const kids = [h('a', { href: '#storage', html: icon('chart'), title: 'Storage' })];
+    parts.forEach((p, i) => { kids.push(h('span', { class: 's' }, '/'), h('a', { href: '#storage/' + parts.slice(0, i + 1).map(encodeURIComponent).join('/'), class: i === parts.length - 1 ? 'cur' : null }, p)); });
+    crumbs.replaceChildren(...kids);
+  }
+  const head = [crumbs, h('h1', { class: 'large-title' }, title)];
+  if (d.size == null) {
+    main.replaceChildren(...head, h('div', { class: 'stor-hero' }, h('div', { style: { gridColumn: '1 / -1' } },
+      h('p', {}, d.scanning ? `Indexing your files… ${d.progress.toLocaleString()} folders so far` : 'Not indexed yet.'), h('div', { class: 'progress-line' }))));
+    storTimer = setTimeout(() => showStorage(rel), 800);
+    return;
+  }
+  // ring chart: categories of this folder (root also shows free space)
+  const isRoot = !rel;
+  const cats = [...(d.categories || [])].sort((a, b) => b.bytes - a.bytes);
+  const total = isRoot && d.disk_total ? d.disk_total : d.size || 1;
+  const R = 54, C = 2 * Math.PI * R;
+  let off = 0;
+  const arcs = cats.map(c => {
+    const len = c.bytes / total * C;
+    const el = `<circle r="${R}" cx="66" cy="66" fill="none" stroke="${CAT_COLORS[c.name]}" stroke-width="16" stroke-dasharray="${Math.max(len - 1.5, 0.01)} ${C}" stroke-dashoffset="${-off}"/>`;
+    off += len;
+    return el;
+  }).join('');
+  const ring = h('div', { class: 'ring', html: `<svg viewBox="0 0 132 132"><circle r="${R}" cx="66" cy="66" fill="none" stroke="var(--fill2)" stroke-width="16"/>${arcs}</svg>` },
+    h('div', { class: 'c' }, h('b', {}, fmtSize(d.size)), h('span', {}, isRoot && d.disk_total ? `of ${fmtSize(d.disk_total)} disk` : `${d.files.toLocaleString()} files`)));
+  const legend = h('div', { class: 'stor-legend' },
+    cats.map(c => h('div', {}, h('i', { style: { background: CAT_COLORS[c.name] } }), c.name, h('span', {}, fmtSize(c.bytes)))),
+    isRoot && d.disk_free != null ? h('div', {}, h('i', { style: { background: 'var(--fill2)' } }), 'Free', h('span', {}, fmtSize(d.disk_free))) : null);
+  const ago = d.last_scan ? fmtAgo(d.last_scan) : '';
+  const meta = h('div', { class: 'stor-meta' },
+    d.scanning ? h('span', {}, `${d.scan_mode === 'full' ? 'Rescanning' : 'Checking for changes'}… ${d.progress.toLocaleString()} folders · showing previous results`) :
+      d.live ? h('span', { class: 'live' }, 'Live: updates automatically') : h('span', {}, 'Checked for changes every 10 minutes'),
+    h('span', {}, `${d.files.toLocaleString()} files · ${d.dirs.toLocaleString()} folders`),
+    ago ? h('span', {}, `Indexed ${ago}` + (d.scan_ms != null ? ` in ${d.scan_ms < 1000 ? d.scan_ms + ' ms' : (d.scan_ms / 1000).toFixed(1) + ' s'}` : '')) : null,
+    d.scanning ? h('div', { class: 'progress-line', style: { flexBasis: '100%' } }) : null);
+  const max = Math.max(1, ...(d.entries || []).map(e => e.size));
+  const entries = (d.entries || []).map(e => {
+    const full = joinPath(rel, e.name);
+    const pct = d.size ? e.size / d.size * 100 : 0;
+    const c = h('div', { class: 'cell', oncontextmenu: ev => { ev.preventDefault(); contextMenu(ev, { name: e.name, dir: e.dir, size: e.size }, full); } },
+      h('div', { class: 'sbar', style: { width: (e.size / max * 100).toFixed(1) + '%' } }),
+      h('a', { class: 'open', href: e.dir ? '#storage/' + full.split('/').map(encodeURIComponent).join('/') : dlURL(full), onclick: ev => { ev.preventDefault(); e.dir ? goStor(full) : openEntry({ name: e.name, size: e.size }, full, null); } }),
+      fileThumb(e.name, e.dir),
+      h('div', { class: 'txt' }, h('span', { class: 't1' }, e.name), h('span', { class: 't2' }, e.dir ? `${(e.files || 0).toLocaleString()} files` : 'File')),
+      h('span', { class: 'pct' }, pct >= 0.1 ? pct.toFixed(1) + '%' : ''),
+      h('span', { class: 'size' }, fmtSize(e.size)),
+      e.dir ? h('span', { class: 'acc', html: icon('right') }) : null);
+    return c;
+  });
+  const largest = (d.largest || []).map(l => {
+    const name = l.path.split('/').pop();
+    const dir = l.path.split('/').slice(0, -1).join('/');
+    return h('div', { class: 'cell', oncontextmenu: ev => { ev.preventDefault(); contextMenu(ev, { name, dir: false, size: l.size }, l.path); } },
+      h('a', { class: 'open', href: dlURL(l.path), onclick: ev => { ev.preventDefault(); openEntry({ name, size: l.size }, l.path, null); } }),
+      fileThumb(name, false),
+      h('div', { class: 'txt' }, h('span', { class: 't1' }, name), h('span', { class: 't2' }, '/' + dir)),
+      h('span', { class: 'size' }, fmtSize(l.size)));
+  });
+  main.replaceChildren(...head,
+    h('div', { class: 'stor-hero' }, ring, legend, meta),
+    entries.length ? h('div', { class: 'group-h' }, 'By size') : null,
+    entries.length ? h('div', { class: 'group' }, entries) : h('div', { class: 'empty', html: icon('folder') + '<p>Nothing here.</p>' }),
+    largest.length ? h('div', { class: 'section-gap' }) : null,
+    largest.length ? h('div', { class: 'group-h' }, 'Largest files') : null,
+    largest.length ? h('div', { class: 'group' }, largest) : null);
+  if (parts.length) scrollCrumbsToEnd(crumbs);
+  if (d.scanning) storTimer = setTimeout(() => showStorage(rel), 1000);
+}
+
+async function confirmRescan(rel, d) {
+  const took = d.scan_ms != null && d.mode === 'full' ? ` The last full scan took ${d.scan_ms < 1000 ? d.scan_ms + ' ms' : (d.scan_ms / 1000).toFixed(1) + ' s'}.` : '';
+  const msg = `This re-reads every file and folder on the disk.${took}\n\nYou don't normally need this: the index updates itself when files change. ` +
+    `Use it if sizes look wrong. You can cancel the scan while it runs, and the current results stay until it finishes.`;
+  if (!await confirm2('Rescan all storage?', msg, 'Rescan', '')) return;
+  try { await api('POST', '/api/analyze/rescan'); } catch (e) { toast(e.message, true); }
+  showStorage(rel);
+}
+
+async function cancelScan(rel) {
+  if (!await confirm2('Stop the scan?', 'The scan stops now. The previous results are kept.', 'Stop Scan', 'danger', 'Keep Scanning')) return;
+  try { await api('POST', '/api/analyze/cancel'); toast('Scan stopped'); }
+  catch (e) { toast(e.message, true); }
+  setTimeout(() => showStorage(rel), 300);
+}
+
+function fmtAgo(t) {
+  const s = (Date.now() - new Date(t)) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + ' min ago';
+  if (s < 86400) return Math.floor(s / 3600) + ' h ago';
+  return new Date(t).toLocaleDateString();
 }
 
 // ---------- actions ----------
@@ -377,12 +572,13 @@ function contextMenu(ev, e, full) {
   if (matchMedia('(max-width: 640px)').matches) document.body.append(h('div', { class: 'menu-bg', onclick: closeMenu }));
   document.body.append(m);
   const r = m.getBoundingClientRect();
-  m.style.left = Math.min(ev.clientX, innerWidth - r.width - 8) + 'px';
+  const x = ev.clientX || ev.target.getBoundingClientRect?.().left || 0;
+  m.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
   m.style.top = Math.min(ev.clientY, innerHeight - r.height - 8) + 'px';
 }
 
 function onKey(e) {
-  if ($('.modal-bg') || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+  if ($('.modal-bg') || /INPUT|TEXTAREA/.test(document.activeElement?.tagName) || S.view !== 'files') return;
   if (S.me.read_only && (e.key === 'Delete' || e.key === 'F2')) return;
   if (e.key === 'Delete' && S.sel.size) del([...S.sel].map(n => joinPath(S.path, n)));
   else if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); S.entries.forEach(x => S.sel.add(x.name)); render(); }
@@ -513,8 +709,9 @@ async function showSettings() {
   };
   if (S.me.passkeys_on) drawPk();
   drawSess();
-  const cur = h('input', { class: 'input', type: 'password', placeholder: 'Current passcode', autocomplete: 'current-password' });
-  const nw = h('input', { class: 'input', type: 'password', placeholder: 'New passcode (min 4)', autocomplete: 'new-password' });
+  const curF = passwordField({ placeholder: 'Current passcode', autocomplete: 'current-password', 'aria-label': 'Current passcode' });
+  const nwF = passwordField({ placeholder: 'New passcode (min 4)', autocomplete: 'new-password', 'aria-label': 'New passcode' });
+  const cur = curF.input, nw = nwF.input;
   const addPk = async () => {
     if (!window.PublicKeyCredential) return toast('Passkeys need HTTPS (or localhost) and a modern browser', true);
     const name = await prompt2('Name this passkey', 'e.g. “Phone”, “Laptop”, “YubiKey”', guessDevice(), { okLabel: 'Continue' });
@@ -540,7 +737,7 @@ async function showSettings() {
       h('label', { class: 'chk' }, pkOnly, h('span', {}, 'Disable passcode fallback',
         h('div', { class: 'small dim' }, 'Passkey only. Recovery: filenav reset-passkeys')))),
     section('Passcode', 'Changing it logs out all other devices.',
-      h('div', { class: 'form-grid' }, cur, nw,
+      h('div', { class: 'form-grid' }, curF.el, nwF.el,
         h('button', {
           class: 'btn', onclick: async () => {
             try { await api('POST', '/api/settings/passcode', { current: cur.value, new: nw.value }); toast('Passcode changed'); cur.value = nw.value = ''; drawSess(); }

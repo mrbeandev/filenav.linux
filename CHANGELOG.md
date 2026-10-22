@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+- Storage analyzer: cached index of folder sizes with a Storage view (ring chart by file type, folders by size, largest files). Full scans are parallel (2.5M files in about 1.3 s on 16 cores); the index is saved to disk, validated on startup by folder mtime, and kept current live with inotify (falls back to a 10-minute check if the watch limit is reached). Rescan asks for confirmation and can be stopped; the previous results stay visible. Config: `analyzer` (on by default).
+- Show/hide toggle on all passcode and password fields.
+
+### Changed
+- UI redesigned following Apple's Human Interface Guidelines: system colors (light and dark), sidebar on wide screens and tab bar on phones, large titles, inset grouped lists, sheets and action sheets.
+
 ## [1.1.1] - 2026-10-22
 
 ### Added

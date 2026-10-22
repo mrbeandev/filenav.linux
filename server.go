@@ -26,6 +26,7 @@ type Server struct {
 	loginLimit *limiter
 	shareLimit *limiter
 	challenges *challengeStore
+	analyzer   *Analyzer
 
 	upMu    sync.Mutex
 	uploads map[string]*uploadMeta
@@ -43,6 +44,9 @@ func NewServer(cfg Config, absRoot string, root *os.Root, st *Store, web fs.FS) 
 		upLocks:    map[string]*sync.Mutex{},
 	}
 	s.loadUploads()
+	if cfg.Analyzer {
+		s.analyzer = NewAnalyzer(absRoot, cfg.Data)
+	}
 	s.routes()
 	return s
 }
@@ -91,6 +95,9 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/copy", wr(s.handleMoveCopy(true)))
 	m.HandleFunc("POST /api/delete", wr(s.handleDelete))
 	m.HandleFunc("GET /api/disk", a(s.handleDisk))
+	m.HandleFunc("GET /api/analyze", a(requireFeature(s.cfg.Analyzer, "the storage analyzer is disabled in the config", s.handleAnalyze)))
+	m.HandleFunc("POST /api/analyze/rescan", a(requireFeature(s.cfg.Analyzer, "the storage analyzer is disabled in the config", s.handleAnalyzeRescan)))
+	m.HandleFunc("POST /api/analyze/cancel", a(requireFeature(s.cfg.Analyzer, "the storage analyzer is disabled in the config", s.handleAnalyzeCancel)))
 	m.HandleFunc("POST /api/upload/init", wr(s.handleUploadInit))
 	m.HandleFunc("PUT /api/upload/{uid}", wr(s.handleUploadChunk))
 	m.HandleFunc("DELETE /api/upload/{uid}", wr(s.handleUploadCancel))

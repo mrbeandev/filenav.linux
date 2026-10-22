@@ -95,6 +95,7 @@ chunk_mb: 16                        # upload chunk size (keep < 100 behind Cloud
 
 shares: true                        # public share links
 share_uploads: true                 # share links that accept uploads
+analyzer: true                      # storage analyzer (cached folder sizes, updated live)
 
 tls_cert: ""                        # serve HTTPS directly (optional)
 tls_key: ""

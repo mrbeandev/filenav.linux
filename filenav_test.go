@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -295,5 +296,52 @@ func TestPWAEndpoints(t *testing.T) {
 	r.Body.Close()
 	if r.StatusCode != 200 || bytes.Contains(b, []byte("__VERSION__")) || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/javascript") {
 		t.Fatalf("sw.js: %d %q", r.StatusCode, r.Header.Get("Content-Type"))
+	}
+}
+
+func TestAnalyzer(t *testing.T) {
+	root, data := t.TempDir(), t.TempDir()
+	write := func(p string, n int) {
+		t.Helper()
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(root, p)), 0o755)
+		if err := os.WriteFile(filepath.Join(root, p), make([]byte, n), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a/x.mp4", 1000)
+	write("a/b/y.jpg", 200)
+	write("c/z.txt", 30)
+	write(uploadTmpDir+"/partial", 999) // must be ignored
+	an := NewAnalyzer(root, data)
+	if err := an.FullScan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if an.tree.size != 1230 || an.tree.files != 3 {
+		t.Fatalf("full scan: size %d files %d", an.tree.size, an.tree.files)
+	}
+	if l := largestFiles(an.tree, "", 2); len(l) != 2 || l[0].Path != "a/x.mp4" {
+		t.Fatalf("largest: %v", l)
+	}
+
+	// live-style update of one folder
+	write("a/b/new.png", 500)
+	an.updateDir("a/b")
+	if an.lookup("a").size != 1700 || an.tree.size != 1730 {
+		t.Fatalf("after updateDir: a=%d root=%d", an.lookup("a").size, an.tree.size)
+	}
+
+	// persist, change on disk while "stopped", reload + quick refresh
+	an.save()
+	write("c/d/e/new.iso", 4000)
+	_ = os.RemoveAll(filepath.Join(root, "a", "b"))
+	an2 := NewAnalyzer(root, data)
+	if err := an2.load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := an2.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if an2.tree.size != 5030 || an2.tree.files != 3 {
+		t.Fatalf("after refresh: size %d files %d", an2.tree.size, an2.tree.files)
 	}
 }

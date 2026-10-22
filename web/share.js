@@ -32,7 +32,8 @@ function fatal(msg) {
 
 function renderPassword() {
   const err = h('div', { class: 'err' });
-  const pw = h('input', { class: 'input', type: 'password', placeholder: 'Password', autofocus: true });
+  const pf = passwordField({ placeholder: 'Password', autofocus: true, autocomplete: 'current-password', 'aria-label': 'Password' });
+  const pw = pf.input;
   $('#root').replaceChildren(h('div', { class: 'center' }, h('div', { class: 'card' },
     h('h1', {}, iconEl('lock', 'logo'), V.info.name),
     h('div', { class: 'dim' }, 'This link is password protected.'),
@@ -42,7 +43,7 @@ function renderPassword() {
         try { await api('POST', base + '/api/unlock', { password: pw.value }); location.reload(); }
         catch (x) { err.textContent = x.message; pw.select(); }
       }
-    }, pw, h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Open'), err))));
+    }, pf.el, h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Open'), err))));
 }
 
 const subFromHash = () => decodeURIComponent(location.hash.replace(/^#\/?/, '')).replace(/\/+$/, '');
@@ -125,7 +126,7 @@ function renderList() {
     const full = joinPath(V.path, e.name);
     const sel = V.sel.has(e.name);
     return h('tr', { class: 'f' + (sel ? ' sel' : '') },
-      h('td', { class: 'c' }, h('input', { type: 'checkbox', checked: sel, onclick: ev => { ev.target.checked ? V.sel.add(e.name) : V.sel.delete(e.name); renderList(); } })),
+      h('td', { class: 'c' }, h('input', { type: 'checkbox', class: 'sel-circle', checked: sel, onclick: ev => { ev.target.checked ? V.sel.add(e.name) : V.sel.delete(e.name); renderList(); } })),
       h('td', { class: 'name' }, h('a', {
         href: e.dir ? '#/' + full.split('/').map(encodeURIComponent).join('/') : dl(full),
         onclick: ev => {
