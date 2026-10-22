@@ -11,8 +11,10 @@ release:
 	GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="$(LDFLAGS)" -o dist/filenav-linux-arm64 .
 	GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="$(LDFLAGS)" -o dist/filenav-linux-armv7 .
 
+ADDR ?= 127.0.0.1:8090
+
 run: filenav
-	FILENAV_PASSCODE=test1234 ./filenav -root ./files -data ./filenav-data
+	FILENAV_PASSCODE=test1234 ./filenav -addr $(ADDR) -root ./files -data ./filenav-data
 
 clean:
 	rm -rf filenav dist
