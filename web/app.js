@@ -26,7 +26,7 @@ async function boot() {
 // ---------- login ----------
 function renderLogin() {
   const err = h('div', { class: 'err' });
-  const hasPasskeys = !!window.PublicKeyCredential && S.me.passkeys > 0;
+  const hasPasskeys = !!window.PublicKeyCredential && S.me.passkeys_on && S.me.passkeys > 0;
   const pass = h('input', { class: 'input', type: 'password', placeholder: 'Passcode', autocomplete: 'current-password' });
   const passForm = h('form', {
     class: 'pass-form' + (hasPasskeys ? ' hidden' : ''),
@@ -85,17 +85,18 @@ function startApp() {
       h('a', { class: 'brand', href: '#/', onclick: e => { e.preventDefault(); searchInput.value = ''; S.search = null; go(''); } }, iconEl('logo', 'logo'), h('span', { class: 'hide-sm' }, S.me.title)),
       h('div', { class: 'grow' }, searchInput),
       h('span', { class: 'disk hide-md', id: 'disk' }),
-      h('button', { class: 'btn ghost', title: 'Shared links', onclick: showShares, html: icon('link') + '<span class="lbl">Shares</span>' }),
-      h('button', { class: 'btn ghost', title: 'Settings', onclick: showSettings, html: icon('gear') }),
-      h('button', { class: 'btn ghost', title: 'Log out', onclick: async () => { await api('POST', '/api/logout'); location.reload(); }, html: icon('logout') })),
+      S.me.shares_on ? h('button', { class: 'btn ghost', title: 'Shared links', onclick: showShares, html: icon('link') + '<span class="lbl">Shares</span>' }) : null,
+      S.me.auth ? h('button', { class: 'btn ghost', title: 'Settings', onclick: showSettings, html: icon('gear') }) : null,
+      S.me.read_only ? h('span', { class: 'badge', title: 'Read-only mode (config)' }, 'read-only') : null,
+      S.me.auth ? h('button', { class: 'btn ghost', title: 'Log out', onclick: async () => { await api('POST', '/api/logout'); location.reload(); }, html: icon('logout') }) : null),
     h('div', { class: 'toolbar' },
       h('nav', { class: 'crumbs', id: 'crumbs' }),
       h('div', { class: 'tools' },
-        h('button', { class: 'btn primary', title: 'Upload files', onclick: async () => upload(await pickFiles()), html: icon('upload') + '<span class="lbl">Upload</span>' }),
-        h('button', { class: 'btn', title: 'Upload folder', onclick: async () => upload(await pickFiles(true)), html: icon('folder') + '<span class="lbl">Folder</span>' }),
-        h('button', { class: 'btn', title: 'New folder', onclick: newFolder, html: icon('folderPlus') }),
-        h('button', { class: 'btn', title: 'New text file', onclick: newFile, html: icon('fileplus') }),
-        h('button', { class: 'btn', title: 'Share this folder', onclick: () => shareDialog(S.path, true), html: icon('share') }),
+        S.me.read_only ? null : h('button', { class: 'btn primary', title: 'Upload files', onclick: async () => upload(await pickFiles()), html: icon('upload') + '<span class="lbl">Upload</span>' }),
+        S.me.read_only ? null : h('button', { class: 'btn', title: 'Upload folder', onclick: async () => upload(await pickFiles(true)), html: icon('folder') + '<span class="lbl">Folder</span>' }),
+        S.me.read_only ? null : h('button', { class: 'btn', title: 'New folder', onclick: newFolder, html: icon('folderPlus') }),
+        S.me.read_only ? null : h('button', { class: 'btn', title: 'New text file', onclick: newFile, html: icon('fileplus') }),
+        !S.me.shares_on ? null : h('button', { class: 'btn', title: 'Share this folder', onclick: () => shareDialog(S.path, true), html: icon('share') }),
         h('button', { class: 'btn ghost', title: 'Refresh', onclick: () => load(), html: icon('refresh') }))),
     h('div', { id: 'selbar' }),
     h('main', { id: 'main' })));
@@ -106,7 +107,7 @@ function startApp() {
     onFileDone: () => { clearTimeout(S._rt); S._rt = setTimeout(() => load(true), 400); },
     onAllDone: () => { load(true); loadDisk(); },
   });
-  setupDropTarget(files => upload(files));
+  setupDropTarget(files => upload(files), () => !S.me.read_only);
   window.addEventListener('beforeunload', e => { if (uploader.active) { e.preventDefault(); e.returnValue = ''; } });
   window.addEventListener('hashchange', () => { const p = pathFromHash(); if (p !== S.path) { S.search = null; searchInput.value = ''; load(); } });
   document.addEventListener('keydown', onKey);
@@ -229,10 +230,10 @@ function renderSelbar() {
   if (n) {
     kids.push(h('b', { style: { whiteSpace: 'nowrap' } }, `${n} selected`), h('span', { class: 'grow' }),
       h('button', { class: 'btn', title: 'Download', onclick: () => downloadSel(), html: icon('download') + '<span class="lbl">Download</span>' }),
-      h('button', { class: 'btn', title: 'Cut (move)', onclick: () => { S.clipboard = { op: 'move', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('move') + '<span class="lbl">Move</span>' }),
-      h('button', { class: 'btn', title: 'Copy', onclick: () => { S.clipboard = { op: 'copy', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('copy') + '<span class="lbl">Copy</span>' }),
-      h('button', { class: 'btn', title: 'Move / copy to…', onclick: () => moveDialog(paths), html: icon('folder') + '<span class="lbl">Move to…</span>' }),
-      h('button', { class: 'btn danger', title: 'Delete', onclick: () => del(paths), html: icon('trash') + '<span class="lbl">Delete</span>' }),
+      S.me.read_only ? null : h('button', { class: 'btn', title: 'Cut (move)', onclick: () => { S.clipboard = { op: 'move', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('move') + '<span class="lbl">Move</span>' }),
+      S.me.read_only ? null : h('button', { class: 'btn', title: 'Copy', onclick: () => { S.clipboard = { op: 'copy', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('copy') + '<span class="lbl">Copy</span>' }),
+      S.me.read_only ? null : h('button', { class: 'btn', title: 'Move / copy to…', onclick: () => moveDialog(paths), html: icon('folder') + '<span class="lbl">Move to…</span>' }),
+      S.me.read_only ? null : h('button', { class: 'btn danger', title: 'Delete', onclick: () => del(paths), html: icon('trash') + '<span class="lbl">Delete</span>' }),
       h('button', { class: 'btn ghost', onclick: () => { S.sel.clear(); render(); }, html: icon('x') }));
   } else {
     const c = S.clipboard;
@@ -252,17 +253,17 @@ function viewerOpts(e, full, list) {
   const index = Math.max(0, files.findIndex(f => f.full === full));
   return {
     name: e.name, size: e.size, raw: dlURL(full, true), dl: dlURL(full), text: '/api/text?path=' + encPath(full),
-    save: content => api('PUT', '/api/text', { path: full, content }).then(r => { load(true); return r; }),
+    save: S.me.read_only ? null : content => api('PUT', '/api/text', { path: full, content }).then(r => { load(true); return r; }),
     resolve: (rel, isImg) => dlURL(resolveRel(dir, rel), isImg),
     count: files.length, index,
     nav: i => openEntry(files[i].e, files[i].full, files),
-    extra: [h('button', { class: 'btn ghost', html: icon('share'), title: 'Share', onclick: () => shareDialog(full, false) })],
+    extra: S.me.shares_on ? [h('button', { class: 'btn ghost', html: icon('share'), title: 'Share', onclick: () => shareDialog(full, false) })] : [],
   };
 }
 
-function openEntry(e, full, list) {
+function openEntry(e, full, list, as) {
   if (e.dir) { S.search = null; $('input.search').value = ''; return go(full); }
-  openViewer(viewerOpts(e, full, list));
+  openViewer({ ...viewerOpts(e, full, list), as });
 }
 
 function downloadSel() {
@@ -275,7 +276,11 @@ function downloadSel() {
 }
 
 function upload(files) {
-  if (!files || !files.length) return;
+  if (!files || !files.length || S.me.read_only) return;
+  if (S.me.max_upload) {
+    const big = [...files].filter(f => f.size > S.me.max_upload);
+    if (big.length) { toast(`${big.length} file(s) exceed the ${fmtSize(S.me.max_upload)} upload limit and were skipped`, true); files = [...files].filter(f => f.size <= S.me.max_upload); if (!files.length) return; }
+  }
   uploader.add(files, S.path);
 }
 
@@ -348,19 +353,21 @@ function contextMenu(ev, e, full) {
   const item = (ic, label, fn, cls = '') => h('button', { class: cls, onclick: ev2 => { ev2.stopPropagation(); closeMenu(); fn(); }, html: icon(ic) + `<span></span>` }, label);
   const items = multi ? [
     item('download', 'Download as zip', downloadSel),
-    item('folder', 'Move / copy to…', () => moveDialog([...S.sel].map(n => joinPath(S.path, n)))),
-    item('trash', `Delete ${S.sel.size} items`, () => del([...S.sel].map(n => joinPath(S.path, n))), 'danger'),
+    S.me.read_only ? null : item('folder', 'Move / copy to…', () => moveDialog([...S.sel].map(n => joinPath(S.path, n)))),
+    S.me.read_only ? null : item('trash', `Delete ${S.sel.size} items`, () => del([...S.sel].map(n => joinPath(S.path, n))), 'danger'),
   ] : [
     !e.dir ? item(viewKind(e.name) === 'text' || viewKind(e.name) === 'md' ? 'edit' : 'eye', viewKind(e.name) === 'text' ? 'Open / edit' : 'Open', () => openEntry(e, full)) : null,
     e.dir ? item('folder', 'Open', () => openEntry(e, full)) : null,
+    !e.dir ? h('button', { class: 'sub', onclick: ev2 => { ev2.stopPropagation(); m.querySelector('.submenu').classList.toggle('hidden'); }, html: icon('more') + '<span>Open with…</span>' }) : null,
+    !e.dir ? h('div', { class: 'submenu hidden' }, OPEN_WITH.map(([k, ic, label]) => item(ic, label, () => openEntry(e, full, null, k)))) : null,
     item('download', e.dir ? 'Download as zip' : 'Download', () => {
       if (e.dir) { const dir = full.split('/').slice(0, -1).join('/'); location.href = '/api/zip?' + new URLSearchParams({ dir, names: e.name }); }
       else location.href = dlURL(full);
     }),
-    item('share', 'Share link…', () => shareDialog(full, e.dir)),
-    item('edit', 'Rename', () => rename(full, e.name)),
-    item('folder', 'Move / copy to…', () => moveDialog([full])),
-    item('trash', 'Delete', () => del([full]), 'danger'),
+    S.me.shares_on ? item('share', 'Share link…', () => shareDialog(full, e.dir)) : null,
+    S.me.read_only ? null : item('edit', 'Rename', () => rename(full, e.name)),
+    S.me.read_only ? null : item('folder', 'Move / copy to…', () => moveDialog([full])),
+    S.me.read_only ? null : item('trash', 'Delete', () => del([full]), 'danger'),
   ];
   const m = h('div', { class: 'menu' }, h('div', { class: 'small dim hide-lg', style: { padding: '6px 14px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, multi ? `${S.sel.size} items` : e.name), items);
   if (matchMedia('(max-width: 640px)').matches) document.body.append(h('div', { class: 'menu-bg', onclick: closeMenu }));
@@ -372,6 +379,7 @@ function contextMenu(ev, e, full) {
 
 function onKey(e) {
   if ($('.modal-bg') || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+  if (S.me.read_only && (e.key === 'Delete' || e.key === 'F2')) return;
   if (e.key === 'Delete' && S.sel.size) del([...S.sel].map(n => joinPath(S.path, n)));
   else if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); S.entries.forEach(x => S.sel.add(x.name)); render(); }
   else if (e.key === 'Escape') { S.sel.clear(); closeMenu(); render(); }
@@ -398,8 +406,8 @@ async function shareDialog(full, isDir) {
   const note = h('textarea', { class: 'input', rows: 2, placeholder: 'Optional message shown to visitors' });
   const mode = h('select', { class: 'input' },
     h('option', { value: 'view' }, 'View & download only'),
-    isDir ? h('option', { value: 'upload' }, 'View, download & upload') : null,
-    isDir ? h('option', { value: 'drop' }, 'Upload only (file drop — visitors can\'t see files)') : null);
+    isDir && S.me.share_uploads && !S.me.read_only ? h('option', { value: 'upload' }, 'View, download & upload') : null,
+    isDir && S.me.share_uploads && !S.me.read_only ? h('option', { value: 'drop' }, 'Upload only (file drop — visitors can\'t see files)') : null);
   const result = h('div');
   const create = async () => {
     let hours = Number(exp.value);
@@ -496,7 +504,8 @@ async function showSettings() {
     try { await api('POST', '/api/settings/passkey-only', { enabled: pkOnly.checked }); toast(pkOnly.checked ? 'Passcode fallback disabled' : 'Passcode fallback enabled'); }
     catch (e) { toast(e.message, true); pkOnly.checked = !pkOnly.checked; }
   };
-  drawPk(); drawSess();
+  if (S.me.passkeys_on) drawPk();
+  drawSess();
   const cur = h('input', { class: 'input', type: 'password', placeholder: 'Current passcode', autocomplete: 'current-password' });
   const nw = h('input', { class: 'input', type: 'password', placeholder: 'New passcode (min 4)', autocomplete: 'new-password' });
   const addPk = async () => {
@@ -518,7 +527,7 @@ async function showSettings() {
     } catch (e) { toast(e.message, true); }
   };
   modal('Settings', h('div', { class: 'settings' },
-    section('Passkeys', 'Primary sign-in: Face ID, fingerprint, Windows Hello, your phone or a security key. The passcode is only a fallback.',
+    !S.me.passkeys_on ? null : section('Passkeys', 'Primary sign-in: Face ID, fingerprint, Windows Hello, your phone or a security key. The passcode is only a fallback.',
       pkList,
       h('button', { class: 'btn', onclick: addPk, html: icon('plus') + 'Add passkey' }),
       h('label', { class: 'chk' }, pkOnly, h('span', {}, 'Disable passcode fallback',

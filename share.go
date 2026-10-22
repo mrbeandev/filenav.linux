@@ -69,6 +69,10 @@ func (s *Server) handleShareCreate(w http.ResponseWriter, r *http.Request) {
 		fsErr(w, err)
 		return
 	}
+	if (req.AllowUpload || req.UploadOnly) && (!s.cfg.ShareUploads || s.cfg.ReadOnly) {
+		jsonErr(w, 403, "upload links are disabled in the config")
+		return
+	}
 	if (req.AllowUpload || req.UploadOnly) && !st.IsDir() {
 		jsonErr(w, 400, "uploads are only possible on shared folders")
 		return
@@ -145,7 +149,7 @@ func (s *Server) handlePubInfo(w http.ResponseWriter, r *http.Request) {
 		"name":         shareName(sh),
 		"is_dir":       sh.IsDir,
 		"needs_pass":   !unlocked,
-		"allow_upload": sh.AllowUpload,
+		"allow_upload": sh.AllowUpload && s.cfg.ShareUploads && !s.cfg.ReadOnly,
 		"upload_only":  sh.UploadOnly,
 		"title":        s.cfg.Title,
 		"chunk_size":   s.cfg.ChunkSize,
@@ -368,7 +372,7 @@ func (s *Server) handlePubUploadInit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !sh.AllowUpload || !sh.IsDir {
+	if !sh.AllowUpload || !sh.IsDir || !s.cfg.ShareUploads || s.cfg.ReadOnly {
 		jsonErr(w, 403, "uploads not allowed")
 		return
 	}
@@ -392,7 +396,7 @@ func (s *Server) handlePubUploadChunk(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !sh.AllowUpload {
+	if !sh.AllowUpload || !s.cfg.ShareUploads || s.cfg.ReadOnly {
 		jsonErr(w, 403, "uploads not allowed")
 		return
 	}

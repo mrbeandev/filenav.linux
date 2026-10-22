@@ -261,3 +261,5 @@ table.files td.c input, table.files th input { margin: 0; vertical-align: middle
   .modal.full header { padding: 6px 6px 6px 12px; }
   .modal.full header .btn { padding: 6px; }
 }
+.menu .submenu { border-left: 2px solid var(--line); margin: 2px 0 4px 18px; padding-left: 4px; }
+.menu button.sub span { flex: 1; }

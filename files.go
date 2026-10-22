@@ -92,6 +92,9 @@ func (s *Server) listDir(rel string) ([]Entry, error) {
 		if rel == "" && de.Name() == uploadTmpDir {
 			continue
 		}
+		if !s.cfg.ShowHidden && strings.HasPrefix(de.Name(), ".") {
+			continue
+		}
 		e := Entry{Name: de.Name(), IsDir: de.IsDir()}
 		if de.Type()&fs.ModeSymlink != 0 {
 			e.Link = true
@@ -346,6 +349,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			return fs.SkipAll
 		}
 		if p == fsPath(base) {
+			return nil
+		}
+		if !s.cfg.ShowHidden && strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if strings.Contains(strings.ToLower(d.Name()), needle) {

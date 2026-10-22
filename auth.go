@@ -18,9 +18,8 @@ import (
 )
 
 const (
-	sessionCookie   = "fn_session"
-	sessionLifetime = 30 * 24 * time.Hour
-	pbkdf2Iter      = 300_000
+	sessionCookie = "fn_session"
+	pbkdf2Iter    = 300_000
 )
 
 // ---------- secret hashing (PBKDF2-SHA256, stdlib only) ----------
@@ -174,6 +173,7 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request, method strin
 	if len(ua) > 200 {
 		ua = ua[:200]
 	}
+	sessionLifetime := time.Duration(s.cfg.SessionDays) * 24 * time.Hour
 	err := s.st.Update(func(st *State) error {
 		st.Sessions[tokenKey(tok)] = &Session{
 			Created: now, Expires: now.Add(sessionLifetime),
@@ -211,7 +211,7 @@ func (s *Server) sessionKey(r *http.Request) string {
 	return k
 }
 
-func (s *Server) authed(r *http.Request) bool { return s.sessionKey(r) != "" }
+func (s *Server) authed(r *http.Request) bool { return !s.cfg.Auth || s.sessionKey(r) != "" }
 
 // requireAuth wraps an admin handler; state-changing methods also need the
 // CSRF header (cross-site requests cannot set custom headers without CORS).
@@ -223,6 +223,28 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 		}
 		if !csrfOK(r) {
 			jsonErr(w, http.StatusForbidden, "missing CSRF header")
+			return
+		}
+		h(w, r)
+	}
+}
+
+// requireWrite is requireAuth plus a read_only check.
+func (s *Server) requireWrite(h http.HandlerFunc) http.HandlerFunc {
+	return s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if s.cfg.ReadOnly {
+			jsonErr(w, http.StatusForbidden, "server is in read-only mode")
+			return
+		}
+		h(w, r)
+	})
+}
+
+// requireFeature disables an endpoint when a config switch is off.
+func requireFeature(on bool, msg string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !on {
+			jsonErr(w, http.StatusForbidden, msg)
 			return
 		}
 		h(w, r)
@@ -243,13 +265,22 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	var passkeys int
 	var passkeyOnly bool
 	s.st.View(func(st *State) { passkeys = len(st.Passkeys); passkeyOnly = st.PasskeyOnly })
+	if !s.cfg.Passkeys {
+		passkeys, passkeyOnly = 0, false
+	}
 	writeJSON(w, map[string]any{
-		"authed":       s.authed(r),
-		"title":        s.cfg.Title,
-		"version":      version,
-		"passkeys":     passkeys,
-		"passkey_only": passkeyOnly,
-		"chunk_size":   s.cfg.ChunkSize,
+		"auth":          s.cfg.Auth,
+		"passkeys_on":   s.cfg.Passkeys,
+		"read_only":     s.cfg.ReadOnly,
+		"shares_on":     s.cfg.Shares,
+		"share_uploads": s.cfg.ShareUploads,
+		"max_upload":    s.cfg.MaxUploadMB << 20,
+		"authed":        s.authed(r),
+		"title":         s.cfg.Title,
+		"version":       version,
+		"passkeys":      passkeys,
+		"passkey_only":  passkeyOnly,
+		"chunk_size":    s.cfg.ChunkSize,
 	})
 }
 
@@ -272,7 +303,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var hash string
 	var passkeyOnly bool
 	s.st.View(func(st *State) { hash = st.PasscodeHash; passkeyOnly = st.PasskeyOnly })
-	if passkeyOnly {
+	if passkeyOnly && s.cfg.Passkeys {
 		jsonErr(w, http.StatusForbidden, "passcode login is disabled; use a passkey")
 		return
 	}

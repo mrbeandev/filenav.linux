@@ -1,5 +1,6 @@
 // Dev helper: screenshot the UI at desktop + phone sizes via Chrome DevTools Protocol.
-// usage: node shots/shot.mjs <chrome-debug-port> <app-url> <outdir>
+// usage: google-chrome --headless=new --remote-debugging-port=9222 &
+//        node scripts/screenshots.mjs 9222 http://127.0.0.1:8080/ ./screenshots   (passcode: test1234)
 import { writeFileSync } from 'node:fs';
 const [port, app, out] = process.argv.slice(2);
 const sleep = ms => new Promise(r => setTimeout(r, ms));

@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -149,6 +150,10 @@ func (s *Server) initUpload(w http.ResponseWriter, req initReq, baseDir, shareID
 	}
 	if final, err := joinRel(dir, req.Name); err != nil || !isWithin(final, baseDir) {
 		jsonErr(w, 400, "invalid name")
+		return
+	}
+	if max := s.cfg.MaxUploadMB << 20; max > 0 && req.Size > max {
+		jsonErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("file is larger than the %d MB upload limit", s.cfg.MaxUploadMB))
 		return
 	}
 	if free, _, ok := s.diskFree(); ok && uint64(req.Size) > free {

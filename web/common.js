@@ -71,10 +71,10 @@ function iconEl(name, cls = '') {
 
 const EXT = {
   img: 'jpg jpeg png gif webp bmp svg ico avif heic tif tiff',
-  vid: 'mp4 webm mkv mov avi m4v ogv 3gp flv wmv ts',
+  vid: 'mp4 webm mkv mov avi m4v ogv 3gp flv wmv m2ts mts',
   aud: 'mp3 wav ogg oga flac m4a aac opus wma',
   arc: 'zip tar gz tgz bz2 xz 7z rar zst iso deb rpm apk dmg',
-  code: 'js mjs ts tsx jsx json go py rs c h cpp hpp java kt rb php sh bash zsh yml yaml toml ini conf cfg xml html htm css scss sql lua pl swift dockerfile makefile env',
+  code: 'js mjs cjs ts mts cts tsx jsx json go py rs c h cpp hpp java kt rb php sh bash zsh yml yaml toml ini conf cfg xml html htm css scss sql lua pl swift dockerfile makefile env',
   doc: 'txt md pdf doc docx odt rtf csv xls xlsx ods ppt pptx odp log epub',
 };
 const extOf = n => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : n.toLowerCase(); };
@@ -92,7 +92,7 @@ function fileIcon(name, isDir) {
 const extSet = str => new Set(str.split(' '));
 const K_IMG = extSet('jpg jpeg jfif pjpeg png apng gif webp avif bmp ico svg');
 const K_IMGDEC = extSet('heic heif tif tiff');
-const K_VID = extSet('mp4 m4v webm ogv mov mkv avi wmv flv 3gp ts');
+const K_VID = extSet('mp4 m4v webm ogv mov mkv avi wmv flv 3gp m2ts');
 const K_AUD = extSet('mp3 wav ogg oga flac m4a aac opus weba');
 const K_OFFICE = extSet('doc docx odt rtf xls xlsx xlsm xlsb ods ppt pptx odp key numbers pages');
 const K_BIN = extSet('zip tar gz tgz bz2 xz 7z rar zst iso dmg img exe dll so dylib bin deb rpm apk msi jar class pyc o a ' +
@@ -112,6 +112,10 @@ function viewKind(name) {
   if (K_BIN.has(e)) return 'bin';
   return 'text';
 }
+const OPEN_WITH = [
+  ['text', 'code', 'Code editor'], ['plain', 'edit', 'Plain text editor'], ['md', 'doc', 'Markdown viewer'],
+  ['img', 'img', 'Image viewer'], ['vid', 'vid', 'Video player'], ['aud', 'aud', 'Audio player'], ['pdf', 'doc', 'PDF viewer'],
+];
 // kept for inline rendering on the public single-file page
 function previewKind(name) {
   const k = viewKind(name);
@@ -460,7 +464,7 @@ const prefersDark = () => matchMedia('(prefers-color-scheme: dark)').matches;
          save?(content) → Promise, resolve?(relLink, isImage) → URL,
          count?, index?, nav?(i), extra?: [elements] } */
 function openViewer(o) {
-  const kind = viewKind(o.name);
+  const kind = o.as || viewKind(o.name);
   const body = h('div', { class: 'viewer' }, h('div', { class: 'viewer-msg dim' }, 'Loading…'));
   let dirty = false, editor = null, blobURL = null, mdMode = 'view', mdSrc = '';
   const cleanup = [];
@@ -476,7 +480,9 @@ function openViewer(o) {
   const wrapBtn = add(h('button', { class: 'btn ghost hidden', title: 'Toggle line wrap', onclick: () => { editor.setWrap(!editor.wrapped); wrapBtn.classList.toggle('on', editor.wrapped); }, html: icon('wrap') }));
   const mdBtn = add(h('button', { class: 'btn hidden', onclick: () => toggleMd() }));
   const saveBtn = o.save ? add(h('button', { class: 'btn primary hidden', disabled: true, onclick: () => save(), html: icon('check') + '<span class="lbl">Save</span>' })) : null;
-  if (o.nav && o.count > 1) {
+  // prev/next only for media; editors don't get it (and arrow keys belong to the text)
+  const hasNav = o.nav && o.count > 1 && !o.as && !['text', 'plain', 'md'].includes(kind);
+  if (hasNav) {
     add(h('button', { class: 'btn ghost', title: 'Previous (←)', onclick: () => go(-1), html: icon('left') }));
     add(h('span', { class: 'small dim hide-sm' }, `${o.index + 1}/${o.count}`));
     add(h('button', { class: 'btn ghost', title: 'Next (→)', onclick: () => go(1), html: icon('right') }));
@@ -491,7 +497,7 @@ function openViewer(o) {
     o.nav((o.index + d + o.count) % o.count);
   };
   const onKey = e => {
-    if (!o.nav || o.count < 2 || e.target.closest?.('.cm-editor, input, textarea') || $$('.modal-bg').pop() !== m.box.parentNode) return;
+    if (!hasNav || e.target.closest?.('.cm-editor, input, textarea') || $$('.modal-bg').pop() !== m.box.parentNode) return;
     if (e.key === 'ArrowLeft') go(-1);
     if (e.key === 'ArrowRight') go(1);
   };
@@ -502,7 +508,7 @@ function openViewer(o) {
     let x0 = null;
     body.addEventListener('touchstart', e => { x0 = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
     body.addEventListener('touchend', e => {
-      if (x0 == null || !o.nav) return;
+      if (x0 == null || !hasNav) return;
       const dx = e.changedTouches[0].clientX - x0;
       if (Math.abs(dx) > 70) go(dx < 0 ? 1 : -1);
     });
@@ -519,14 +525,17 @@ function openViewer(o) {
       fileIcon(o.name, false), h('div', { class: 'vm-name' }, o.name),
       o.size != null ? h('div', { class: 'dim small' }, fmtSize(o.size)) : null,
       h('div', { class: 'dim', style: { maxWidth: '460px' } }, msg),
-      h('a', { class: 'btn primary', href: o.dl, html: icon('download') + 'Download' })));
+      h('div', { class: 'row wrap', style: { justifyContent: 'center' } },
+        h('a', { class: 'btn primary', href: o.dl, html: icon('download') + 'Download' }),
+        kind !== 'text' ? h('button', { class: 'btn', onclick: () => reopen('text'), html: icon('code') + 'Open as text' }) : null)));
   }
+  function reopen(as) { if (dirty && !window.confirm('Discard unsaved changes?')) return; dirty = false; m.forceClose(); openViewer({ ...o, as }); }
   async function mountEditor(content) {
     const mod = await import('/assets/vendor/editor.js');
     const host = h('div', { class: 'cm-host' });
     body.replaceChildren(host);
     editor && editor.destroy();
-    editor = await mod.create(host, { doc: content, name: o.name, dark: prefersDark(), readOnly: !o.save, onChange: markDirty, onSave: save });
+    editor = await mod.create(host, { doc: content, name: kind === 'plain' ? 'file.txt' : o.name, dark: prefersDark(), readOnly: !o.save, onChange: markDirty, onSave: save });
     langLabel.textContent = editor.language;
     wrapBtn.classList.remove('hidden');
     if (saveBtn) saveBtn.classList.remove('hidden');
@@ -592,7 +601,7 @@ function openViewer(o) {
         mdSrc = src; langLabel.textContent = 'Markdown';
         mdBtn.classList.remove('hidden');
         mdMode = 'edit'; await toggleMd();
-      } else {
+      } else { // text, plain
         const src = await loadText();
         if (src == null) return;
         await mountEditor(src);

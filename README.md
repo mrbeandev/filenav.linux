@@ -1,69 +1,138 @@
 # filenav
 
-A tiny self-hosted web file manager. It's **one static binary** (~7 MB) with **no dependencies**, no database and no Docker.
-It uses **~8 MB RAM idle and ~10 MB** while serving several large downloads at once.
+**A tiny self-hosted web file manager for Linux.** It's one static binary (~10 MB) with no dependencies, no database and no Docker.
+It uses **~8 MB of RAM when idle**, so it's a good fit for small VPSes and Raspberry Pis where Nextcloud is too heavy.
 
-## Features
-- Browse, upload, download, rename, move, copy, delete, search, create folders and files, edit text files
-- **Large uploads**: resumable chunked uploads (16 MiB chunks, streamed straight to disk). An upload survives network drops, and if you re-add the same file it resumes where it stopped. Size is limited only by disk space. You can drag & drop whole folders.
-- **Large downloads**: HTTP Range support, so downloads can be resumed and videos can be seeked. Folders and multi-file selections download as a streamed zip (zip64, no compression, so it uses almost no CPU or RAM).
-- **Share links**: one link for a file or folder, with optional:
-  - password
-  - expiry
-  - download limit
-  - note shown to visitors
-  - **visitor uploads** ("view + upload", or "upload only" drop-box mode)
-  - Visitors can never overwrite or delete existing files.
-  - Links keep working when you rename or move the shared item.
-- **Auth**: a single passcode or **passkeys** (Face ID / Touch ID / Windows Hello / phone / YubiKey). You can turn on passkey-only mode, list sessions and revoke them.
-- **Viewer/editor**: CodeMirror 6 code editor (syntax highlighting for 100+ languages, search, folding) for *any* text file. Text vs binary is detected by content, so `.gitignore`, `.env`, `Makefile`, etc. open too. Markdown is rendered (sanitised) with an edit toggle.
-- Previews: images (including HEIC/HEIF and TIFF, decoded in a sandboxed iframe), video and audio streaming with seeking, PDF. Previous/next navigation with arrow keys or swipe.
-- Works on mobile. Light and dark themes.
-- Security: brute-force rate limiting, CSRF protection, traversal-safe filesystem access (Go `os.Root`), and sandboxed previews.
+- 📁 Browse, upload, download, rename, move, copy, delete, search
+- 🚀 **Large files**: resumable chunked uploads that survive network drops; resumable downloads; video seeking
+- 🔗 **Share links** with optional password, expiry, download limit, and **visitor uploads** (including an upload-only "drop box" mode)
+- 🔑 **Passkeys** (Face ID / fingerprint / Windows Hello / security keys), with a passcode as fallback
+- 📝 Code editor (CodeMirror, 100+ languages) for any text file; Markdown rendering
+- 🖼️ Previews for images (including HEIC & TIFF), video, audio and PDF
+- 📱 Mobile-friendly UI with dark and light themes
+- ⚙️ `filenav setup` installs it as a systemd service in one command
 
-## Quick start
+## Install
+
 ```bash
-make                       # needs Go ≥ 1.24; produces ./filenav
-./filenav -root ~/files    # prints a generated passcode on first start
-# open http://127.0.0.1:8080
+curl -fsSL https://raw.githubusercontent.com/mrbeandev/filenav.linux/main/scripts/install.sh | sh
 ```
+This downloads the right binary for your machine (amd64, arm64, armv7, 386) to `~/.local/bin`, or to `/usr/local/bin` when run as root.
+You can also grab it yourself from [Releases](https://github.com/mrbeandev/filenav.linux/releases).
 
-## Install on a server (systemd + HTTPS)
+Then either:
+
 ```bash
-make && sudo ./deploy/install.sh
-sudo nano /etc/filenav.env        # set FILENAV_ORIGIN=https://your.domain
-sudo systemctl restart filenav
-sudo -u filenav FILENAV_DATA=/var/lib/filenav filenav passcode   # set your passcode
-```
-Then put **Caddy** (`deploy/Caddyfile`, automatic HTTPS) or **nginx** (`deploy/nginx.conf`) in front of it.
-**Passkeys require HTTPS** and a correct `FILENAV_ORIGIN`.
-
-To cross-compile on your PC and copy only the binary to the server: `make release` builds `dist/filenav-linux-{amd64,arm64,armv7}`.
-
-## Configuration (flags or env)
-| Flag | Env | Default |
-|---|---|---|
-| `-root` | `FILENAV_ROOT` | `./files` |
-| `-data` | `FILENAV_DATA` | `./filenav-data` |
-| `-addr` | `FILENAV_ADDR` | `127.0.0.1:8080` |
-| `-origin` | `FILENAV_ORIGIN` | auto-detected |
-| `-trust-proxy` | `FILENAV_TRUST_PROXY` | `false` |
-| `-chunk-mb` | `FILENAV_CHUNK_MB` | `16` |
-| `-title` | `FILENAV_TITLE` | `filenav` |
-| `-tls-cert/-tls-key` | `FILENAV_TLS_CERT/KEY` | (serve HTTPS directly) |
-
-## CLI
-```
-filenav passcode         # set/change passcode (logs everyone out)
-filenav reset-passkeys   # recovery if you lose your passkey in passkey-only mode
-filenav logout-all
+filenav          # run in the foreground; on first run it creates ~/.filenav_linux/config.yml and prints a passcode
+filenav setup    # install as a service that starts at boot (asks a few questions)
 ```
 
-## Frontend libraries
-The third-party browser libraries (CodeMirror, marked, DOMPurify, heic2any, UTIF) are pre-bundled into `web/vendor/` and committed, so building filenav only needs Go.
-To update them: `cd ui-vendor && npm ci && npm run build`.
+`filenav setup` creates a **user** service when run as a normal user, or a **system** service when run with `sudo`.
+If the service is already installed, it checks everything and prints the status instead:
 
-## Notes
-- State (sessions, passkeys, shares) lives in `$FILENAV_DATA/state.json`. Back it up along with your files.
-- Partial uploads are kept in `<root>/.filenav-uploads/` (hidden in the UI) and deleted after 48 h of inactivity.
-- Behind **Cloudflare**, keep `FILENAV_CHUNK_MB` below 100.
+```
+filenav is already set up.
+
+  ✓ service    active (system)
+  ✓ autostart  enabled
+  ✓ config     /home/me/.filenav_linux/config.yml
+  ✓ binary     /usr/local/bin/filenav
+    serving    /home/me/filenav
+  ✓ reachable  http://127.0.0.1:8080
+
+Everything is fully set up and running.
+```
+
+## Configuration
+
+Everything lives in **`~/.filenav_linux/config.yml`**. It's created with comments on first run; JSON (`config.json`) works too.
+Restart after editing it: `filenav restart`.
+
+```yaml
+root: "/home/me/filenav"            # folder shown in the file manager
+data_dir: "/home/me/.filenav_linux/data"
+address: "127.0.0.1"                # 0.0.0.0 to reach it from other devices
+port: 8080
+origin: ""                          # public URL, e.g. https://files.example.com (needed for passkeys behind a proxy)
+trust_proxy: false                  # true behind Caddy / nginx / Cloudflare
+title: "filenav"
+
+auth: true                          # false = no login at all (only on trusted networks!)
+passkeys: true                      # allow passkey sign-in
+passcode: ""                        # initial passcode, only used until you change it in the UI
+session_days: 30
+
+read_only: false                    # block uploads, edits, renames, moves and deletes
+show_hidden: true                   # show dotfiles
+max_upload_mb: 0                    # 0 = unlimited
+chunk_mb: 16                        # upload chunk size (keep < 100 behind Cloudflare)
+
+shares: true                        # public share links
+share_uploads: true                 # share links that accept uploads
+
+tls_cert: ""                        # serve HTTPS directly (optional)
+tls_key: ""
+```
+
+Settings are applied in this order, each overriding the one before: built-in defaults → config file → `FILENAV_*` environment variables (e.g. `FILENAV_PORT=9000`) → command-line flags (`filenav serve -port 9000`, see `filenav serve -h`).
+Use another config file with `--config /path/config.yml`. `filenav config` prints the effective settings.
+
+> The `passcode` setting is only used **on first start**. Once you change the passcode in Settings or with `filenav passcode`, the config value is ignored.
+
+## Commands
+
+| Command | |
+|---|---|
+| `filenav` / `filenav serve` | run the server |
+| `filenav setup` | install the systemd service, or check its status if already installed (`--force` to reinstall/upgrade, `--yes` for defaults) |
+| `filenav status` | service and health report |
+| `filenav start` / `stop` / `restart` | control the service |
+| `filenav uninstall` | remove the service (keeps your files and config) |
+| `filenav config` | print the effective configuration |
+| `filenav passcode` | set a new passcode (logs everyone out) |
+| `filenav reset-passkeys` | remove all passkeys (recovery if you're locked out) |
+| `filenav logout-all` | end all sessions |
+
+**Upgrading:** download the new binary, then run `filenav setup --force`.
+
+## HTTPS / domain
+
+Passkeys need HTTPS (or `localhost`). The simplest way to get HTTPS is [Caddy](https://caddyserver.com), which fetches certificates automatically ([`deploy/Caddyfile`](deploy/Caddyfile)):
+
+```
+files.example.com {
+	reverse_proxy 127.0.0.1:8080 {
+		flush_interval -1
+	}
+}
+```
+
+Then set `origin: "https://files.example.com"` and `trust_proxy: true`. For nginx, see [`deploy/nginx.conf`](deploy/nginx.conf). The important parts are `proxy_request_buffering off` and `proxy_buffering off`.
+
+## How it works
+
+- **Uploads** are sent in chunks (16 MB by default) and written straight to disk. If a chunk fails, it's retried with backoff. If you add the same file again later, the upload resumes where it stopped. Partial uploads are kept in `<root>/.filenav-uploads/` and deleted after 48 h of inactivity.
+- **Downloads and video** use HTTP Range requests, so downloads resume and videos stream and seek. The server never converts video, so playback depends on what your browser supports (MP4/H.264 and WebM work everywhere).
+- **Folders and multi-file selections** download as an uncompressed zip that's built on the fly, so it uses almost no CPU or RAM.
+- **State** (sessions, passkeys, share links) is a single JSON file in `data_dir`. Back it up along with your files.
+- **Security**:
+  - all file access is confined to `root` (Go's `os.Root`), so tricks like `../` can't escape it
+  - CSRF protection, plus rate limiting on login and share passwords
+  - passcodes are hashed with PBKDF2
+  - previews are sandboxed
+  - share visitors can never overwrite or delete files
+
+## Building from source
+
+```bash
+git clone https://github.com/mrbeandev/filenav.linux && cd filenav.linux
+make            # needs Go ≥ 1.24
+make test
+make release    # cross-compile into dist/
+```
+
+The browser libraries (CodeMirror, marked, DOMPurify, heic2any, UTIF) are pre-bundled into `web/vendor/`, so building only needs Go. To update them: `make vendor` (needs Node).
+
+## License
+
+[MIT](LICENSE)

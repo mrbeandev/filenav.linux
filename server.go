@@ -49,6 +49,10 @@ func NewServer(cfg Config, absRoot string, root *os.Root, st *Store, web fs.FS) 
 func (s *Server) routes() {
 	m := s.mux
 	a := s.requireAuth
+	wr := s.requireWrite
+	sh := func(h http.HandlerFunc) http.HandlerFunc {
+		return requireFeature(s.cfg.Shares, "sharing is disabled in the config", h)
+	}
 
 	// static UI
 	m.HandleFunc("GET /{$}", s.serveAsset("index.html"))
@@ -59,10 +63,10 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/me", s.handleMe)
 	m.HandleFunc("POST /api/login", s.handleLogin)
 	m.HandleFunc("POST /api/logout", s.handleLogout)
-	m.HandleFunc("GET /api/passkey/login/begin", s.handlePasskeyLoginBegin)
-	m.HandleFunc("POST /api/passkey/login/finish", s.handlePasskeyLoginFinish)
-	m.HandleFunc("GET /api/passkey/register/begin", a(s.handlePasskeyRegBegin))
-	m.HandleFunc("POST /api/passkey/register/finish", a(s.handlePasskeyRegFinish))
+	m.HandleFunc("GET /api/passkey/login/begin", requireFeature(s.cfg.Passkeys, "passkeys are disabled in the config", s.handlePasskeyLoginBegin))
+	m.HandleFunc("POST /api/passkey/login/finish", requireFeature(s.cfg.Passkeys, "passkeys are disabled in the config", s.handlePasskeyLoginFinish))
+	m.HandleFunc("GET /api/passkey/register/begin", a(requireFeature(s.cfg.Passkeys, "passkeys are disabled in the config", s.handlePasskeyRegBegin)))
+	m.HandleFunc("POST /api/passkey/register/finish", a(requireFeature(s.cfg.Passkeys, "passkeys are disabled in the config", s.handlePasskeyRegFinish)))
 	m.HandleFunc("GET /api/passkeys", a(s.handlePasskeyList))
 	m.HandleFunc("DELETE /api/passkeys/{id}", a(s.handlePasskeyDelete))
 	m.HandleFunc("POST /api/settings/passcode", a(s.handleChangePasscode))
@@ -76,33 +80,33 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/zip", a(s.handleZip))
 	m.HandleFunc("GET /api/search", a(s.handleSearch))
 	m.HandleFunc("GET /api/text", a(s.handleTextGet))
-	m.HandleFunc("PUT /api/text", a(s.handleTextPut))
-	m.HandleFunc("POST /api/mkdir", a(s.handleMkdir))
-	m.HandleFunc("POST /api/rename", a(s.handleRename))
-	m.HandleFunc("POST /api/move", a(s.handleMoveCopy(false)))
-	m.HandleFunc("POST /api/copy", a(s.handleMoveCopy(true)))
-	m.HandleFunc("POST /api/delete", a(s.handleDelete))
+	m.HandleFunc("PUT /api/text", wr(s.handleTextPut))
+	m.HandleFunc("POST /api/mkdir", wr(s.handleMkdir))
+	m.HandleFunc("POST /api/rename", wr(s.handleRename))
+	m.HandleFunc("POST /api/move", wr(s.handleMoveCopy(false)))
+	m.HandleFunc("POST /api/copy", wr(s.handleMoveCopy(true)))
+	m.HandleFunc("POST /api/delete", wr(s.handleDelete))
 	m.HandleFunc("GET /api/disk", a(s.handleDisk))
-	m.HandleFunc("POST /api/upload/init", a(s.handleUploadInit))
-	m.HandleFunc("PUT /api/upload/{uid}", a(s.handleUploadChunk))
-	m.HandleFunc("DELETE /api/upload/{uid}", a(s.handleUploadCancel))
+	m.HandleFunc("POST /api/upload/init", wr(s.handleUploadInit))
+	m.HandleFunc("PUT /api/upload/{uid}", wr(s.handleUploadChunk))
+	m.HandleFunc("DELETE /api/upload/{uid}", wr(s.handleUploadCancel))
 
 	// shares (admin)
 	m.HandleFunc("GET /api/shares", a(s.handleShareList))
-	m.HandleFunc("POST /api/shares", a(s.handleShareCreate))
+	m.HandleFunc("POST /api/shares", a(sh(s.handleShareCreate)))
 	m.HandleFunc("DELETE /api/shares/{id}", a(s.handleShareDelete))
 
 	// shares (public)
 	m.HandleFunc("GET /s/{id}", s.serveAsset("share.html"))
 	m.HandleFunc("GET /s/{id}/{$}", s.serveAsset("share.html"))
-	m.HandleFunc("GET /s/{id}/api/info", s.handlePubInfo)
-	m.HandleFunc("POST /s/{id}/api/unlock", s.handlePubUnlock)
-	m.HandleFunc("GET /s/{id}/api/list", s.handlePubList)
-	m.HandleFunc("GET /s/{id}/dl", s.handlePubDownload)
-	m.HandleFunc("GET /s/{id}/api/text", s.handlePubText)
-	m.HandleFunc("GET /s/{id}/zip", s.handlePubZip)
-	m.HandleFunc("POST /s/{id}/api/upload/init", s.handlePubUploadInit)
-	m.HandleFunc("PUT /s/{id}/api/upload/{uid}", s.handlePubUploadChunk)
+	m.HandleFunc("GET /s/{id}/api/info", sh(s.handlePubInfo))
+	m.HandleFunc("POST /s/{id}/api/unlock", sh(s.handlePubUnlock))
+	m.HandleFunc("GET /s/{id}/api/list", sh(s.handlePubList))
+	m.HandleFunc("GET /s/{id}/dl", sh(s.handlePubDownload))
+	m.HandleFunc("GET /s/{id}/api/text", sh(s.handlePubText))
+	m.HandleFunc("GET /s/{id}/zip", sh(s.handlePubZip))
+	m.HandleFunc("POST /s/{id}/api/upload/init", sh(s.handlePubUploadInit))
+	m.HandleFunc("PUT /s/{id}/api/upload/{uid}", sh(s.handlePubUploadChunk))
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
