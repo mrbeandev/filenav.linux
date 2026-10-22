@@ -9,6 +9,8 @@
     --shadow: 0 10px 40px rgba(20,30,60,.15); color-scheme: light; }
 }
 * { box-sizing: border-box; }
+/* default icon size; more specific rules (.fi, .logo, .empty …) override it */
+svg { width: 18px; height: 18px; flex: none; }
 html, body { margin: 0; height: 100%; }
 body { background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 a { color: var(--acc); text-decoration: none; }
@@ -53,7 +55,7 @@ header.top .brand { font-weight: 650; display: flex; align-items: center; gap: 8
 .search { max-width: 340px; }
 .toolbar { display: flex; gap: 8px; padding: 10px 16px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
 .crumbs { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; min-width: 0; flex: 1; }
-.crumbs a { padding: 4px 8px; border-radius: 6px; color: var(--fg); }
+.crumbs a { padding: 4px 8px; border-radius: 6px; color: var(--fg); display: inline-flex; align-items: center; }
 .crumbs a:hover { background: var(--bg3); }
 .crumbs span.s { color: var(--dim); }
 main { flex: 1; overflow: auto; position: relative; }
