@@ -1,0 +1,7 @@
+# Caddy gets HTTPS certificates automatically. Replace the domain.
+files.example.com {
+	reverse_proxy 127.0.0.1:8080 {
+		# stream large transfers, never buffer
+		flush_interval -1
+	}
+}
