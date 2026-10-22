@@ -49,17 +49,27 @@ label.chk input { margin-top: 3px; }
 .logo { width: 30px; height: 30px; color: var(--acc); }
 
 /* layout */
-.app { display: flex; flex-direction: column; height: 100%; }
+.app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 header.top { display: flex; align-items: center; gap: 8px; padding: 6px 12px; min-height: 48px; border-bottom: 1px solid var(--line); background: var(--bg2); position: sticky; top: 0; z-index: 5; }
 header.top .brand { font-weight: 650; display: flex; align-items: center; gap: 8px; font-size: 16px; }
 .search { max-width: 340px; }
 .toolbar { display: flex; gap: 6px; padding: 6px 12px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
 .crumbs { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; min-width: 0; flex: 1; }
-.crumbs a { padding: 4px 6px; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; border-radius: 6px; color: var(--fg); display: inline-flex; align-items: center; }
+.crumbs a { flex: none; padding: 4px 6px; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; border-radius: 6px; color: var(--fg); display: inline-flex; align-items: center; }
+.crumbs a.cur { font-weight: 600; }
 .crumbs a:hover { background: var(--bg3); }
-.crumbs span.s { color: var(--dim); }
-main { flex: 1; overflow: auto; position: relative; }
-.selbar { display: flex; gap: 6px; align-items: center; padding: 6px 12px; background: color-mix(in srgb, var(--acc) 14%, var(--bg2)); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.crumbs span.s { flex: none; color: var(--dim); }
+main { flex: 1; min-height: 0; overflow: auto; position: relative; }
+/* floating selection / paste bar */
+.selbar { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 25;
+  width: max-content; max-width: calc(100vw - 24px); display: flex; gap: 6px; align-items: center; padding: 8px 8px 8px 16px;
+  background: color-mix(in srgb, var(--acc) 10%, var(--bg2)); border: 1px solid color-mix(in srgb, var(--acc) 35%, var(--line));
+  border-radius: 14px; box-shadow: var(--shadow); animation: selbar-in .16s ease-out; }
+.selbar .sel-info { display: flex; flex-direction: column; line-height: 1.2; white-space: nowrap; margin-right: 10px; }
+.selbar .grow { flex: 1; }
+@keyframes selbar-in { from { opacity: 0; transform: translate(-50%, 10px); } }
+/* keep the last rows reachable above the floating bar */
+main { padding-bottom: 96px; }
 
 /* file table */
 table.files { width: 100%; border-collapse: collapse; }
@@ -145,7 +155,8 @@ h4 { margin: 8px 0 0; font-size: 13px; color: var(--dim); text-transform: upperc
 .meta { display: none; font-size: 11.5px; color: var(--dim); margin-top: 1px; }
 table.files td.name .nm { display: flex; flex-direction: column; min-width: 0; }
 table.files td.name .nm > span:first-child { overflow: hidden; text-overflow: ellipsis; }
-.crumbs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+.crumbs { overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; scrollbar-width: none; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scroll-behavior: smooth; }
+.crumbs.fade-l { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px); mask-image: linear-gradient(to right, transparent 0, #000 28px); }
 .crumbs::-webkit-scrollbar { display: none; }
 .tools { display: flex; gap: 6px; align-items: center; }
 
@@ -166,8 +177,11 @@ table.files td.name .nm > span:first-child { overflow: hidden; text-overflow: el
   .toolbar .crumbs { flex: 1 1 100%; order: -1; }
   .toolbar .tools { flex: 1; justify-content: space-between; }
   .toolbar .tools .btn { flex: 1; justify-content: center; }
-  .selbar { padding: 6px 8px; gap: 4px; }
+  .selbar { left: 8px; right: 8px; width: auto; max-width: none; transform: none; bottom: calc(8px + env(safe-area-inset-bottom)); padding: 6px 6px 6px 12px; gap: 2px; }
   .selbar .btn { padding: 6px 8px; }
+  .selbar .sel-info { margin-right: 4px; }
+  @keyframes selbar-in { from { opacity: 0; transform: translateY(10px); } }
+  main { padding-bottom: 88px; }
   table.files td { padding: 7px 6px; }
   table.files td.c { width: 30px; padding-left: 10px; }
   table.files th { padding: 6px; }
@@ -182,7 +196,8 @@ table.files td.name .nm > span:first-child { overflow: hidden; text-overflow: el
   .modal footer .btn { flex: 1; justify-content: center; }
   .uploads { right: 0; bottom: 0; width: 100%; border-radius: 12px 12px 0 0; }
   .uploads .ul { max-height: 40vh; }
-  .item { padding: 8px 10px; }
+  .item { padding: 8px 10px; gap: 8px; }
+  .item > .btn { padding: 6px; min-height: 32px; }
   .share-hero { padding: 18px 12px 4px; }
   .dropzone { margin: 12px; padding: 24px 12px; }
   .card { padding: 20px; }
@@ -244,10 +259,15 @@ table.files td.c input, table.files th input { margin: 0; vertical-align: middle
 .set-card p { margin: -4px 0 0; }
 .set-card > .btn { justify-self: start; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
-.item .main > div:first-child { display: flex; align-items: center; gap: 6px; }
+.item .main > div:first-child { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.item .main .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .main .badge { flex: none; }
+.item .main div.wrapline { white-space: normal; overflow: visible; }
+.item > .btn { flex: none; }
 .item > svg { width: 18px; height: 18px; color: var(--dim); }
 .modal .body { min-width: 0; }
-.list { min-width: 0; }
+.list { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.item { min-width: 0; }
 
 /* login */
 .login-box { display: grid; gap: 10px; margin-top: 18px; }
@@ -263,3 +283,10 @@ table.files td.c input, table.files th input { margin: 0; vertical-align: middle
 }
 .menu .submenu { border-left: 2px solid var(--line); margin: 2px 0 4px 18px; padding-left: 4px; }
 .menu button.sub span { flex: 1; }
+/* upload panel sits above the floating bar when both are shown */
+body.has-selbar .uploads { bottom: 84px; }
+@media (max-width: 640px) { body.has-selbar .uploads { bottom: 72px; border-radius: 12px; } }
+/* installed app (PWA): keep the header clear of the notch / status bar */
+@supports (padding-top: env(safe-area-inset-top)) {
+  header.top { padding-top: max(6px, env(safe-area-inset-top)); }
+}

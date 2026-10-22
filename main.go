@@ -33,20 +33,21 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `filenav %s: lightweight self-hosted web file manager
 
 Usage:
-  filenav [serve] [flags]      run the server (default command)
-  filenav setup                install as a systemd service (or show status if installed)
-  filenav status               show service status and health
-  filenav restart | stop | start
-  filenav uninstall            remove the service (keeps files and config)
-  filenav config               print the effective configuration
-  filenav passcode             set/change the login passcode
-  filenav reset-passkeys       remove all registered passkeys
-  filenav logout-all           invalidate all sessions
-  filenav update               update to the latest release (--check to only check)
-  filenav version
+  filenav [serve] [flags]          run the server (default command)
+  filenav setup                    install as a systemd service (or show status if installed)
+  filenav status                   show service status and health
+  filenav start | stop | restart   control the service
+  filenav uninstall                remove the service (keeps files and config)
+  filenav update                   update to the latest release (--check to only check)
+  filenav config                   print the effective configuration
+  filenav passcode                 set/change the login passcode
+  filenav reset-passkeys           remove all registered passkeys
+  filenav logout-all               invalidate all sessions
+  filenav version                  print the version
+  filenav help                     show this help
 
 Config file: ~/.filenav_linux/config.yml (created on first run; JSON also supported)
-Run "filenav serve -h" for flags.
+Docs: https://github.com/mrbeandev/filenav.linux
 `, version)
 }
 
@@ -56,6 +57,14 @@ func main() {
 	cmd := "serve"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd, args = args[0], args[1:]
+	}
+	// "filenav <cmd> -h" for commands without their own flags
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+		switch cmd {
+		case "status", "restart", "stop", "start", "uninstall", "version", "reset-passkeys", "logout-all":
+			usage()
+			return
+		}
 	}
 	var err error
 	switch cmd {
@@ -77,9 +86,10 @@ func main() {
 		err = runUpdate(args)
 	case "version", "--version", "-v":
 		fmt.Println("filenav", version)
-	case "help", "-h", "--help":
-		usage()
+	case "help":
+		err = runServe([]string{"-h"}) // prints commands + flags and exits
 	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
 		usage()
 		os.Exit(2)
 	}

@@ -417,6 +417,18 @@ function pickFiles(folder = false) {
   });
 }
 
+// breadcrumbs: show the current folder (scroll to the end) and fade the left edge when earlier crumbs are hidden
+function scrollCrumbsToEnd(c) {
+  requestAnimationFrame(() => {
+    c.style.scrollBehavior = 'auto';
+    c.scrollLeft = c.scrollWidth;
+    c.style.scrollBehavior = '';
+    const fade = () => c.classList.toggle('fade-l', c.scrollLeft > 2);
+    c.onscroll = fade;
+    fade();
+  });
+}
+
 const joinPath = (a, b) => (a ? a + '/' : '') + b;
 const encPath = p => encodeURIComponent(p);
 

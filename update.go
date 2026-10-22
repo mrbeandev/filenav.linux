@@ -153,6 +153,10 @@ func expectedSum(sums, name string) string {
 
 func runUpdate(args []string) error {
 	fset := flag.NewFlagSet("filenav update", flag.ExitOnError)
+	fset.Usage = func() {
+		fmt.Fprintf(fset.Output(), "Usage: filenav update [flags]\n\nChecks the latest GitHub release and installs it if newer.\n\nFlags:\n")
+		fset.PrintDefaults()
+	}
 	check := fset.Bool("check", false, "only check, don't install")
 	yes := fset.Bool("yes", false, "don't ask for confirmation")
 	force := fset.Bool("force", false, "install even if not newer (e.g. reinstall, or replace a dev build)")

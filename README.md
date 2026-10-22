@@ -1,16 +1,42 @@
+<p align="center">
+  <img src="assets/hero.webp" alt="filenav: a tiny self-hosted file manager, shown on a laptop and a phone" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/mrbeandev/filenav.linux/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/mrbeandev/filenav.linux?color=6c8cff"></a>
+  <a href="https://github.com/mrbeandev/filenav.linux/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mrbeandev/filenav.linux/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <img alt="Go" src="https://img.shields.io/badge/go-stdlib%20only-00ADD8">
+</p>
+
 # filenav
 
 **A tiny self-hosted web file manager for Linux.** It's one static binary (~10 MB) with no dependencies, no database and no Docker.
 It uses **~8 MB of RAM when idle**, so it's a good fit for small VPSes and Raspberry Pis where Nextcloud is too heavy.
 
-- 📁 Browse, upload, download, rename, move, copy, delete, search
-- 🚀 **Large files**: resumable chunked uploads that survive network drops; resumable downloads; video seeking
-- 🔗 **Share links** with optional password, expiry, download limit, and **visitor uploads** (including an upload-only "drop box" mode)
-- 🔑 **Passkeys** (Face ID / fingerprint / Windows Hello / security keys), with a passcode as fallback
-- 📝 Code editor (CodeMirror, 100+ languages) for any text file; Markdown rendering
-- 🖼️ Previews for images (including HEIC & TIFF), video, audio and PDF
-- 📱 Mobile-friendly UI with dark and light themes
-- ⚙️ `filenav setup` installs it as a systemd service in one command
+- **Browse and manage**: upload, download, rename, move, copy, delete, search
+- **Large files**: resumable chunked uploads that survive network drops; resumable downloads; video seeking
+- **Share links** with optional password, expiry, download limit, and **visitor uploads** (including an upload-only "drop box" mode)
+- **Passkeys** (Face ID / fingerprint / Windows Hello / security keys), with a passcode as fallback
+- **Code editor** (CodeMirror, 100+ languages) for any text file; Markdown rendering
+- **Previews** for images (including HEIC and TIFF), video, audio and PDF
+- **Installable app (PWA)** with a mobile-friendly UI, dark and light themes
+- **One-command service**: `filenav setup` installs it as a systemd service; `filenav update` keeps it current
+
+## Screenshots
+
+<img src="assets/browse.webp" alt="File list on desktop and phone" width="100%">
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/share.webp" alt="Share dialog and public share page with uploads"></td>
+    <td width="50%"><img src="assets/uploads.webp" alt="Resumable upload progress"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/editor.webp" alt="Code editor with syntax highlighting"></td>
+    <td width="50%"><img src="assets/mobile.webp" alt="Phone layout: selection bar, menu and share page"></td>
+  </tr>
+</table>
 
 ## Install
 
@@ -115,6 +141,7 @@ Then set `origin: "https://files.example.com"` and `trust_proxy: true`. For ngin
 - **Uploads** are sent in chunks (16 MB by default) and written straight to disk. If a chunk fails, it's retried with backoff. If you add the same file again later, the upload resumes where it stopped. Partial uploads are kept in `<root>/.filenav-uploads/` and deleted after 48 h of inactivity.
 - **Downloads and video** use HTTP Range requests, so downloads resume and videos stream and seek. The server never converts video, so playback depends on what your browser supports (MP4/H.264 and WebM work everywhere).
 - **Folders and multi-file selections** download as an uncompressed zip that's built on the fly, so it uses almost no CPU or RAM.
+- **Install as an app**: on a phone, use "Add to Home screen"; on desktop Chrome or Edge, use the install icon in the address bar. The service worker caches only the app shell (HTML, CSS, JS, icons), never your files or API responses.
 - **State** (sessions, passkeys, share links) is a single JSON file in `data_dir`. Back it up along with your files.
 - **Security**:
   - all file access is confined to `root` (Go's `os.Root`), so tricks like `../` can't escape it

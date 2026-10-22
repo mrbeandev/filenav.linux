@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /{$}", s.serveAsset("index.html"))
 	m.HandleFunc("GET /assets/{file...}", s.handleAsset)
 	m.HandleFunc("GET /favicon.ico", s.serveAsset("favicon.svg"))
+	m.HandleFunc("GET /manifest.webmanifest", s.handleManifest)
+	m.HandleFunc("GET /sw.js", s.handleServiceWorker)
+	m.HandleFunc("GET /apple-touch-icon.png", s.serveAsset("icons/apple-touch-icon.png"))
 
 	// auth
 	m.HandleFunc("GET /api/me", s.handleMe)
@@ -285,4 +289,50 @@ func (s *Server) sendDecoder(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Security-Policy", decoderCSP)
 	h.Set("Cache-Control", "public, max-age=86400")
 	_, _ = w.Write(decoderPage)
+}
+
+// handleManifest serves the PWA manifest; name/title come from the config.
+func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
+	icon := func(src, size, purpose string) map[string]string {
+		return map[string]string{"src": src, "sizes": size, "type": "image/png", "purpose": purpose}
+	}
+	w.Header().Set("Content-Type", "application/manifest+json")
+	w.Header().Set("Cache-Control", "no-cache")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"name":             s.cfg.Title,
+		"short_name":       s.cfg.Title,
+		"description":      "Self-hosted file manager",
+		"id":               "/",
+		"start_url":        "/",
+		"scope":            "/",
+		"display":          "standalone",
+		"background_color": "#0f1115",
+		"theme_color":      "#0f1115",
+		"icons": []map[string]string{
+			icon("/assets/icons/icon-192.png", "192x192", "any"),
+			icon("/assets/icons/icon-512.png", "512x512", "any"),
+			icon("/assets/icons/maskable-512.png", "512x512", "maskable"),
+		},
+		// "Share to filenav" from other apps is a possible future addition (share_target).
+	})
+}
+
+// handleServiceWorker serves sw.js from the root scope, with the cache name tied
+// to the build version so a new release replaces the cached app shell.
+func (s *Server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
+	b, err := fs.ReadFile(s.web, "sw.js")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	v := version
+	if v == "dev" {
+		v = "dev-" + strconv.FormatInt(assetStart.Unix(), 10)
+	}
+	b = bytes.Replace(b, []byte("__VERSION__"), []byte(v), 1)
+	h := w.Header()
+	h.Set("Content-Type", "text/javascript; charset=utf-8")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Service-Worker-Allowed", "/")
+	_, _ = w.Write(b)
 }

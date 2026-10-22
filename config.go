@@ -310,7 +310,21 @@ func (c *Config) finalize() error {
 // autoCreate writes a default config file on first run if none exists.
 func loadConfig(name string, args []string, autoCreate bool) (Config, *flag.FlagSet, error) {
 	c := defaultConfig()
-	fset := flag.NewFlagSet("filenav "+name, flag.ExitOnError)
+	display := name
+	if display == "" {
+		display = "serve"
+	}
+	fset := flag.NewFlagSet("filenav "+display, flag.ExitOnError)
+	fset.Usage = func() {
+		out := fset.Output()
+		if display == "serve" {
+			usage()
+			fmt.Fprintln(out, "\nFlags (override the config file):")
+		} else {
+			fmt.Fprintf(out, "Usage: filenav %s [flags]\n\nFlags:\n", display)
+		}
+		fset.PrintDefaults()
+	}
 	cfgPath := fset.String("config", os.Getenv("FILENAV_CONFIG"), "config file (default ~/.filenav_linux/config.yml)")
 	fRoot := fset.String("root", "", "folder to serve")
 	fData := fset.String("data", "", "state directory")

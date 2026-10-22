@@ -269,3 +269,31 @@ func TestUpdateFlow(t *testing.T) {
 		t.Fatal("404 download should fail")
 	}
 }
+
+func TestPWAEndpoints(t *testing.T) {
+	ts, _ := newTestServer(t, func(c *Config) { c.Title = "My Files" })
+	c := client(t)
+	resp, err := c.Get(ts.URL + "/manifest.webmanifest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&m)
+	resp.Body.Close()
+	if m["name"] != "My Files" || m["display"] != "standalone" || len(m["icons"].([]any)) != 3 {
+		t.Fatalf("manifest: %v", m)
+	}
+	for _, ic := range m["icons"].([]any) {
+		r, err := c.Get(ts.URL + ic.(map[string]any)["src"].(string))
+		if err != nil || r.StatusCode != 200 || r.Header.Get("Content-Type") != "image/png" {
+			t.Fatalf("icon %v: %v %v", ic, err, r.Status)
+		}
+		r.Body.Close()
+	}
+	r, _ := c.Get(ts.URL + "/sw.js")
+	b, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if r.StatusCode != 200 || bytes.Contains(b, []byte("__VERSION__")) || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/javascript") {
+		t.Fatalf("sw.js: %d %q", r.StatusCode, r.Header.Get("Content-Type"))
+	}
+}

@@ -98,8 +98,8 @@ function startApp() {
         S.me.read_only ? null : h('button', { class: 'btn', title: 'New text file', onclick: newFile, html: icon('fileplus') }),
         !S.me.shares_on ? null : h('button', { class: 'btn', title: 'Share this folder', onclick: () => shareDialog(S.path, true), html: icon('share') }),
         h('button', { class: 'btn ghost', title: 'Refresh', onclick: () => load(), html: icon('refresh') }))),
-    h('div', { id: 'selbar' }),
-    h('main', { id: 'main' })));
+    h('main', { id: 'main' }),
+    h('div', { id: 'selbar', class: 'selbar hidden' })));
 
   uploader = new Uploader({
     initURL: '/api/upload/init', chunkURL: uid => '/api/upload/' + uid, chunkSize: S.me.chunk_size,
@@ -181,7 +181,7 @@ function row(e, full, sharedPaths) {
   const open = ev => { ev.preventDefault(); openEntry(e, full, tr._list); };
   const tr = h('tr', {
     class: 'f' + (sel ? ' sel' : ''),
-    oncontextmenu: ev => { ev.preventDefault(); if (!S.sel.has(e.name)) { S.sel.clear(); S.sel.add(e.name); render(); } contextMenu(ev, e, full); },
+    oncontextmenu: ev => { ev.preventDefault(); contextMenu(ev, e, full); },
   },
     h('td', { class: 'c' }, h('input', { type: 'checkbox', checked: sel, onclick: ev => { ev.stopPropagation(); ev.target.checked ? S.sel.add(e.name) : S.sel.delete(e.name); render(); } })),
     h('td', { class: 'name' }, h('a', { href: e.dir ? '#/' + full.split('/').map(encodeURIComponent).join('/') : dlURL(full), onclick: open, title: e.name },
@@ -215,31 +215,34 @@ function renderCrumbs() {
   const kids = [h('a', { href: '#/', html: icon('home'), title: 'Home' })];
   parts.forEach((p, i) => {
     kids.push(h('span', { class: 's' }, '/'));
-    kids.push(h('a', { href: '#/' + parts.slice(0, i + 1).map(encodeURIComponent).join('/') }, p));
+    kids.push(h('a', { href: '#/' + parts.slice(0, i + 1).map(encodeURIComponent).join('/'), title: p, class: i === parts.length - 1 ? 'cur' : null }, p));
   });
   c.replaceChildren(...kids);
+  scrollCrumbsToEnd(c);
 }
 
 function renderSelbar() {
   const bar = $('#selbar');
   const n = S.sel.size;
-  if (!n && !S.clipboard) { bar.replaceChildren(); bar.className = ''; return; }
+  if (!n && !S.clipboard) { bar.replaceChildren(); bar.className = 'selbar hidden'; document.body.classList.remove('has-selbar'); return; }
   bar.className = 'selbar';
+  document.body.classList.add('has-selbar');
   const paths = [...S.sel].map(x => joinPath(S.path, x));
   const kids = [];
   if (n) {
-    kids.push(h('b', { style: { whiteSpace: 'nowrap' } }, `${n} selected`), h('span', { class: 'grow' }),
+    const size = S.entries.filter(e => S.sel.has(e.name) && !e.dir).reduce((a, e) => a + e.size, 0);
+    kids.push(h('div', { class: 'sel-info' }, h('b', {}, `${n} selected`), size ? h('span', { class: 'small dim' }, fmtSize(size)) : null), h('span', { class: 'grow' }),
       h('button', { class: 'btn', title: 'Download', onclick: () => downloadSel(), html: icon('download') + '<span class="lbl">Download</span>' }),
       S.me.read_only ? null : h('button', { class: 'btn', title: 'Cut (move)', onclick: () => { S.clipboard = { op: 'move', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('move') + '<span class="lbl">Move</span>' }),
       S.me.read_only ? null : h('button', { class: 'btn', title: 'Copy', onclick: () => { S.clipboard = { op: 'copy', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('copy') + '<span class="lbl">Copy</span>' }),
       S.me.read_only ? null : h('button', { class: 'btn', title: 'Move / copy to…', onclick: () => moveDialog(paths), html: icon('folder') + '<span class="lbl">Move to…</span>' }),
       S.me.read_only ? null : h('button', { class: 'btn danger', title: 'Delete', onclick: () => del(paths), html: icon('trash') + '<span class="lbl">Delete</span>' }),
-      h('button', { class: 'btn ghost', onclick: () => { S.sel.clear(); render(); }, html: icon('x') }));
+      h('button', { class: 'btn ghost', title: 'Clear selection (Esc)', onclick: () => { S.sel.clear(); render(); }, html: icon('x') }));
   } else {
     const c = S.clipboard;
-    kids.push(h('span', { class: 'grow' }, `${c.paths.length} item(s) ready to ${c.op}`),
+    kids.push(h('div', { class: 'sel-info' }, h('b', {}, `${c.paths.length} item(s) to ${c.op}`), h('span', { class: 'small dim' }, 'Open the destination folder, then paste')), h('span', { class: 'grow' }),
       h('button', { class: 'btn primary', onclick: paste, html: icon('check') + `Paste here` }),
-      h('button', { class: 'btn ghost', onclick: () => { S.clipboard = null; render(); }, html: icon('x') }));
+      h('button', { class: 'btn ghost', title: 'Cancel', onclick: () => { S.clipboard = null; render(); }, html: icon('x') }));
   }
   bar.replaceChildren(...kids);
 }
@@ -349,7 +352,8 @@ function closeMenu() { $('.menu')?.remove(); $('.menu-bg')?.remove(); }
 
 function contextMenu(ev, e, full) {
   closeMenu();
-  const multi = S.sel.size > 1;
+  // act on the whole selection only when right-clicking an item that is part of it
+  const multi = S.sel.size > 1 && S.sel.has(e.name);
   const item = (ic, label, fn, cls = '') => h('button', { class: cls, onclick: ev2 => { ev2.stopPropagation(); closeMenu(); fn(); }, html: icon(ic) + `<span></span>` }, label);
   const items = multi ? [
     item('download', 'Download as zip', downloadSel),
@@ -443,12 +447,15 @@ function shareItem(s, refresh) {
   const flags = [];
   if (s.upload_only) flags.push('upload-only'); else if (s.allow_upload) flags.push('uploads allowed');
   if (s.has_password) flags.push('password');
-  flags.push(s.expires && new Date(s.expires).getFullYear() > 1971 ? (s.expired ? 'EXPIRED ' : 'expires ') + new Date(s.expires).toLocaleString() : 'no expiry');
-  flags.push(`${s.views} views · ${s.downloads}${s.max_downloads ? '/' + s.max_downloads : ''} downloads`);
+  flags.push(s.expires && new Date(s.expires).getFullYear() > 1971 ? (s.expired ? 'expired ' : 'expires ') + new Date(s.expires).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'no expiry');
+  flags.push(`${s.views} views`, `${s.downloads}${s.max_downloads ? '/' + s.max_downloads : ''} downloads`);
   if (s.missing) flags.push('⚠ target missing');
   return h('div', { class: 'item' },
     fileIcon(s.path.split('/').pop() || 'home', s.is_dir),
-    h('div', { class: 'main' }, h('div', {}, '/' + s.path), h('div', { class: 'small dim' }, flags.join(' · '))),
+    h('div', { class: 'main', title: '/' + s.path },
+      h('div', {}, h('span', { class: 't' }, s.path.split('/').pop() || 'Home (all files)')),
+      h('div', { class: 'small dim' }, '/' + s.path.split('/').slice(0, -1).join('/')),
+      h('div', { class: 'small dim wrapline' }, flags.join(' · '))),
     h('button', { class: 'btn ghost', title: 'Copy link', html: icon('copy'), onclick: () => copyText(s.url) }),
     h('a', { class: 'btn ghost', title: 'Open', href: s.url, target: '_blank', rel: 'noopener', html: icon('eye') }),
     h('button', { class: 'btn ghost danger', title: 'Revoke', html: icon('trash'), onclick: async () => {
@@ -485,7 +492,7 @@ async function showSettings() {
     pkOnly.checked = S.me.passkey_only;
     pkOnly.disabled = !d.passkeys.length;
     pkList.replaceChildren(...(d.passkeys.length ? d.passkeys.map(p => h('div', { class: 'item' }, iconEl('key'),
-      h('div', { class: 'main' }, h('div', {}, p.name), h('div', { class: 'small dim' }, 'Added ' + fmtDate(p.created) + (new Date(p.last_used).getFullYear() > 1971 ? ' · used ' + fmtDate(p.last_used) : ''))),
+      h('div', { class: 'main' }, h('div', {}, h('span', { class: 't' }, p.name)), h('div', { class: 'small dim' }, 'Added ' + fmtDate(p.created) + (new Date(p.last_used).getFullYear() > 1971 ? ' · used ' + fmtDate(p.last_used) : ''))),
       h('button', { class: 'btn ghost danger', title: 'Remove', html: icon('trash'), onclick: async () => {
         if (!await confirm2('Remove passkey', `Remove “${p.name}”?`, 'Remove')) return;
         await api('DELETE', '/api/passkeys/' + p.id); drawPk();
@@ -496,7 +503,7 @@ async function showSettings() {
     sessList.replaceChildren(...d.sessions.sort((a, b) => b.current - a.current || new Date(b.created) - new Date(a.created)).map(s => h('div', { class: 'item' },
       iconEl(s.current ? 'check' : 'lock'),
       h('div', { class: 'main' },
-        h('div', { title: s.ua }, uaLabel(s.ua), s.current ? h('span', { class: 'badge share' }, 'this device') : null),
+        h('div', { title: s.ua }, h('span', { class: 't' }, uaLabel(s.ua)), s.current ? h('span', { class: 'badge share' }, 'this device') : null),
         h('div', { class: 'small dim' }, `${s.ip} · ${s.method} · ${fmtDate(s.created)}`)),
       !s.current ? h('button', { class: 'btn ghost danger', title: 'Log out this device', html: icon('logout'), onclick: async () => { await api('DELETE', '/api/sessions/' + s.id); drawSess(); } }) : null)));
   };
@@ -558,3 +565,8 @@ function guessDevice() {
 }
 
 boot();
+
+// PWA: register the service worker (app shell only; needs HTTPS or localhost)
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => { }));
+}

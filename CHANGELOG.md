@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.1.1] - 2026-10-22
+
+### Added
+- Installable web app (PWA): web manifest, app icons (including maskable and Apple touch icon), and a service worker that caches only the app shell, never files or API responses.
+- README graphics: hero banner and screenshots of the real UI.
+
+### Changed
+- Selection actions moved from a bar above the file list to a floating bar at the bottom of the screen (all screen sizes); the list no longer jumps when selecting. Shows count and total size. Extra bottom padding keeps the last rows reachable.
+
+### Fixed
+- Breadcrumbs no longer wrap or squash on deep folders: they scroll sideways, jump to the current folder automatically, and fade the left edge when earlier folders are hidden (admin UI and share page).
+- Right-clicking a file no longer selects it; the context menu acts on that file only (or on the whole selection when right-clicking a selected item).
+- Share dialog / shared links list: long file names no longer overflow; items show the file name, folder and stats on separate lines, ellipsised, on desktop and mobile.
+- `filenav -h` / `filenav help` now list all commands and the flags (previously printed "Usage of filenav :" with only flags); subcommands show their own usage; unknown commands are reported.
+
 ## [1.1.0] - 2026-10-22
 
 ### Added

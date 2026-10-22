@@ -109,15 +109,17 @@ function renderList() {
   if (!bar) return;
   const parts = V.path ? V.path.split('/') : [];
   const crumbs = [h('a', { href: '#/' }, V.info.name)];
-  parts.forEach((p, i) => { crumbs.push(h('span', { class: 's' }, '/'), h('a', { href: '#/' + parts.slice(0, i + 1).map(encodeURIComponent).join('/') }, p)); });
+  parts.forEach((p, i) => { crumbs.push(h('span', { class: 's' }, '/'), h('a', { href: '#/' + parts.slice(0, i + 1).map(encodeURIComponent).join('/'), title: p, class: i === parts.length - 1 ? 'cur' : null }, p)); });
   const zipAll = () => {
     const q = new URLSearchParams({ dir: V.path });
     if (V.sel.size) V.sel.forEach(n => q.append('names', n));
     else if (V.path) { /* whole current folder */ }
     location.href = base + '/zip?' + q;
   };
-  bar.replaceChildren(h('nav', { class: 'crumbs' }, crumbs),
+  const nav = h('nav', { class: 'crumbs' }, crumbs);
+  bar.replaceChildren(nav,
     h('button', { class: 'btn' + (V.sel.size ? ' primary' : ''), onclick: zipAll, html: icon('download') + `<span>${V.sel.size ? `Download ${V.sel.size}` : 'Download all'}</span>` }));
+  scrollCrumbsToEnd(nav);
   if (!V.entries.length) { list.replaceChildren(h('div', { class: 'empty', html: icon('folder') + '<p>This folder is empty.</p>' })); return; }
   list.replaceChildren(h('table', { class: 'files' }, h('tbody', {}, V.entries.map(e => {
     const full = joinPath(V.path, e.name);
