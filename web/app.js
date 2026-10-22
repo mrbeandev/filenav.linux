@@ -73,18 +73,19 @@ function startApp() {
     h('header', { class: 'top' },
       h('a', { class: 'brand', href: '#/', onclick: e => { e.preventDefault(); searchInput.value = ''; S.search = null; go(''); } }, iconEl('logo', 'logo'), h('span', { class: 'hide-sm' }, S.me.title)),
       h('div', { class: 'grow' }, searchInput),
-      h('span', { class: 'disk hide-sm', id: 'disk' }),
+      h('span', { class: 'disk hide-md', id: 'disk' }),
       h('button', { class: 'btn ghost', title: 'Shared links', onclick: showShares, html: icon('link') + '<span class="lbl">Shares</span>' }),
       h('button', { class: 'btn ghost', title: 'Settings', onclick: showSettings, html: icon('gear') }),
       h('button', { class: 'btn ghost', title: 'Log out', onclick: async () => { await api('POST', '/api/logout'); location.reload(); }, html: icon('logout') })),
     h('div', { class: 'toolbar' },
       h('nav', { class: 'crumbs', id: 'crumbs' }),
-      h('button', { class: 'btn primary', onclick: async () => upload(await pickFiles()), html: icon('upload') + '<span class="lbl">Upload</span>' }),
-      h('button', { class: 'btn', title: 'Upload folder', onclick: async () => upload(await pickFiles(true)), html: icon('folder') + '<span class="lbl">Folder</span>' }),
-      h('button', { class: 'btn', title: 'New folder', onclick: newFolder, html: icon('folderPlus') }),
-      h('button', { class: 'btn', title: 'New text file', onclick: newFile, html: icon('fileplus') }),
-      h('button', { class: 'btn', title: 'Share this folder', onclick: () => shareDialog(S.path, true), html: icon('share') }),
-      h('button', { class: 'btn ghost', title: 'Refresh', onclick: () => load(), html: icon('refresh') })),
+      h('div', { class: 'tools' },
+        h('button', { class: 'btn primary', title: 'Upload files', onclick: async () => upload(await pickFiles()), html: icon('upload') + '<span class="lbl">Upload</span>' }),
+        h('button', { class: 'btn', title: 'Upload folder', onclick: async () => upload(await pickFiles(true)), html: icon('folder') + '<span class="lbl">Folder</span>' }),
+        h('button', { class: 'btn', title: 'New folder', onclick: newFolder, html: icon('folderPlus') }),
+        h('button', { class: 'btn', title: 'New text file', onclick: newFile, html: icon('fileplus') }),
+        h('button', { class: 'btn', title: 'Share this folder', onclick: () => shareDialog(S.path, true), html: icon('share') }),
+        h('button', { class: 'btn ghost', title: 'Refresh', onclick: () => load(), html: icon('refresh') }))),
     h('div', { id: 'selbar' }),
     h('main', { id: 'main' })));
 
@@ -98,7 +99,7 @@ function startApp() {
   window.addEventListener('beforeunload', e => { if (uploader.active) { e.preventDefault(); e.returnValue = ''; } });
   window.addEventListener('hashchange', () => { const p = pathFromHash(); if (p !== S.path) { S.search = null; searchInput.value = ''; load(); } });
   document.addEventListener('keydown', onKey);
-  document.addEventListener('click', () => $('.menu')?.remove());
+  document.addEventListener('click', e => { if (!e.target.closest('.menu')) closeMenu(); });
   load();
   loadDisk();
 }
@@ -172,7 +173,8 @@ function row(e, full, sharedPaths) {
   },
     h('td', { class: 'c' }, h('input', { type: 'checkbox', checked: sel, onclick: ev => { ev.stopPropagation(); ev.target.checked ? S.sel.add(e.name) : S.sel.delete(e.name); render(); } })),
     h('td', { class: 'name' }, h('a', { href: e.dir ? '#/' + full.split('/').map(encodeURIComponent).join('/') : dlURL(full), onclick: open, title: e.name },
-      fileIcon(e.name, e.dir), h('span', {}, e.name)),
+      fileIcon(e.name, e.dir), h('span', { class: 'nm' }, h('span', {}, e.name),
+        h('span', { class: 'meta' }, [e.dir ? 'Folder' : fmtSize(e.size), fmtDate(e.mtime)].filter(Boolean).join(' · ')))),
       sharedPaths && sharedPaths.has(full) ? h('span', { class: 'badge share' }, 'shared') : null,
       e.link ? h('span', { class: 'badge' }, 'link') : null),
     h('td', { class: 'num hide-sm' }, e.dir ? '—' : fmtSize(e.size)),
@@ -213,12 +215,12 @@ function renderSelbar() {
   const paths = [...S.sel].map(x => joinPath(S.path, x));
   const kids = [];
   if (n) {
-    kids.push(h('b', {}, `${n} selected`), h('span', { class: 'grow' }),
-      h('button', { class: 'btn', onclick: () => downloadSel(), html: icon('download') + '<span class="lbl">Download</span>' }),
-      h('button', { class: 'btn', onclick: () => { S.clipboard = { op: 'move', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('move') + '<span class="lbl">Move</span>' }),
-      h('button', { class: 'btn', onclick: () => { S.clipboard = { op: 'copy', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('copy') + '<span class="lbl">Copy</span>' }),
-      h('button', { class: 'btn', onclick: () => moveDialog(paths), html: icon('folder') + '<span class="lbl">Move to…</span>' }),
-      h('button', { class: 'btn danger', onclick: () => del(paths), html: icon('trash') + '<span class="lbl">Delete</span>' }),
+    kids.push(h('b', { style: { whiteSpace: 'nowrap' } }, `${n} selected`), h('span', { class: 'grow' }),
+      h('button', { class: 'btn', title: 'Download', onclick: () => downloadSel(), html: icon('download') + '<span class="lbl">Download</span>' }),
+      h('button', { class: 'btn', title: 'Cut (move)', onclick: () => { S.clipboard = { op: 'move', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('move') + '<span class="lbl">Move</span>' }),
+      h('button', { class: 'btn', title: 'Copy', onclick: () => { S.clipboard = { op: 'copy', paths }; S.sel.clear(); render(); toast('Navigate to a folder and Paste'); }, html: icon('copy') + '<span class="lbl">Copy</span>' }),
+      h('button', { class: 'btn', title: 'Move / copy to…', onclick: () => moveDialog(paths), html: icon('folder') + '<span class="lbl">Move to…</span>' }),
+      h('button', { class: 'btn danger', title: 'Delete', onclick: () => del(paths), html: icon('trash') + '<span class="lbl">Delete</span>' }),
       h('button', { class: 'btn ghost', onclick: () => { S.sel.clear(); render(); }, html: icon('x') }));
   } else {
     const c = S.clipboard;
@@ -341,10 +343,12 @@ async function editText(full) {
   closeBtn.addEventListener('click', e => { if (dirty && !window.confirm('Discard unsaved changes?')) e.stopImmediatePropagation(); }, true);
 }
 
+function closeMenu() { $('.menu')?.remove(); $('.menu-bg')?.remove(); }
+
 function contextMenu(ev, e, full) {
-  $('.menu')?.remove();
+  closeMenu();
   const multi = S.sel.size > 1;
-  const item = (ic, label, fn, cls = '') => h('button', { class: cls, onclick: ev2 => { ev2.stopPropagation(); $('.menu')?.remove(); fn(); }, html: icon(ic) + `<span></span>` }, label);
+  const item = (ic, label, fn, cls = '') => h('button', { class: cls, onclick: ev2 => { ev2.stopPropagation(); closeMenu(); fn(); }, html: icon(ic) + `<span></span>` }, label);
   const items = multi ? [
     item('download', 'Download as zip', downloadSel),
     item('folder', 'Move / copy to…', () => moveDialog([...S.sel].map(n => joinPath(S.path, n)))),
@@ -361,7 +365,8 @@ function contextMenu(ev, e, full) {
     item('folder', 'Move / copy to…', () => moveDialog([full])),
     item('trash', 'Delete', () => del([full]), 'danger'),
   ];
-  const m = h('div', { class: 'menu' }, items);
+  const m = h('div', { class: 'menu' }, h('div', { class: 'small dim hide-lg', style: { padding: '6px 14px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, multi ? `${S.sel.size} items` : e.name), items);
+  if (matchMedia('(max-width: 640px)').matches) document.body.append(h('div', { class: 'menu-bg', onclick: closeMenu }));
   document.body.append(m);
   const r = m.getBoundingClientRect();
   m.style.left = Math.min(ev.clientX, innerWidth - r.width - 8) + 'px';
@@ -372,7 +377,7 @@ function onKey(e) {
   if ($('.modal-bg') || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
   if (e.key === 'Delete' && S.sel.size) del([...S.sel].map(n => joinPath(S.path, n)));
   else if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); S.entries.forEach(x => S.sel.add(x.name)); render(); }
-  else if (e.key === 'Escape') { S.sel.clear(); $('.menu')?.remove(); render(); }
+  else if (e.key === 'Escape') { S.sel.clear(); closeMenu(); render(); }
   else if (e.key === 'F2' && S.sel.size === 1) { const n = [...S.sel][0]; rename(joinPath(S.path, n), n); }
   else if (e.key === 'Backspace' && S.path) go(S.path.split('/').slice(0, -1).join('/'));
 }

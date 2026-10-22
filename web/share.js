@@ -90,7 +90,7 @@ function render() {
     }), h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '-6px' } },
       h('button', { class: 'btn ghost small', onclick: async () => upload(await pickFiles(true)) }, 'or upload a whole folder'))));
   }
-  if (i.is_dir && !i.upload_only) kids.push(h('div', { class: 'container' }, h('div', { class: 'toolbar', id: 'bar' }), h('div', { id: 'list' })));
+  if (i.is_dir && !i.upload_only) kids.push(h('div', { class: 'container' }, h('div', { class: 'toolbar sharebar', id: 'bar' }), h('div', { id: 'list' })));
   $('#root').replaceChildren(h('div', {}, ...kids));
 }
 
@@ -107,7 +107,7 @@ function renderList() {
     location.href = base + '/zip?' + q;
   };
   bar.replaceChildren(h('nav', { class: 'crumbs' }, crumbs),
-    h('button', { class: 'btn' + (V.sel.size ? ' primary' : ''), onclick: zipAll, html: icon('download') + `<span class="lbl">${V.sel.size ? `Download ${V.sel.size} selected` : 'Download all'}</span>` }));
+    h('button', { class: 'btn' + (V.sel.size ? ' primary' : ''), onclick: zipAll, html: icon('download') + `<span>${V.sel.size ? `Download ${V.sel.size}` : 'Download all'}</span>` }));
   if (!V.entries.length) { list.replaceChildren(h('div', { class: 'empty', html: icon('folder') + '<p>This folder is empty.</p>' })); return; }
   list.replaceChildren(h('table', { class: 'files' }, h('tbody', {}, V.entries.map(e => {
     const full = joinPath(V.path, e.name);
@@ -121,7 +121,8 @@ function renderList() {
           const pk = previewKind(e.name);
           if (pk && pk !== 'text') { ev.preventDefault(); openPreview(e.name, dl(full, true), dl(full)); }
         }
-      }, fileIcon(e.name, e.dir), h('span', {}, e.name))),
+      }, fileIcon(e.name, e.dir), h('span', { class: 'nm' }, h('span', {}, e.name),
+        h('span', { class: 'meta' }, [e.dir ? 'Folder' : fmtSize(e.size), fmtDate(e.mtime)].filter(Boolean).join(' · '))))),
       h('td', { class: 'num hide-sm' }, e.dir ? '—' : fmtSize(e.size)),
       h('td', { class: 'num hide-sm' }, fmtDate(e.mtime)),
       h('td', { class: 'act' }, e.dir
