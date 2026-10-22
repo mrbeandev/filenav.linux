@@ -154,7 +154,7 @@ func fstatat(dirfd int, name string, st *syscall.Stat_t) error {
 	if err != nil {
 		return err
 	}
-	_, _, e := syscall.Syscall6(syscall.SYS_NEWFSTATAT, uintptr(dirfd), uintptr(unsafe.Pointer(p)),
+	_, _, e := syscall.Syscall6(sysFstatat, uintptr(dirfd), uintptr(unsafe.Pointer(p)),
 		uintptr(unsafe.Pointer(st)), 0x100 /* AT_SYMLINK_NOFOLLOW */, 0, 0)
 	if e != 0 {
 		return e

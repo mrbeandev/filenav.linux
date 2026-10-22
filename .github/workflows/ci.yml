@@ -17,6 +17,9 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: CGO_ENABLED=0 go build -trimpath -o filenav . && ./filenav version
+      - name: Cross-compile all release targets
+        run: |
+          for t in amd64 arm64 386 arm; do CGO_ENABLED=0 GOOS=linux GOARCH=$t GOARM=7 go build -o /dev/null . || exit 1; done
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
