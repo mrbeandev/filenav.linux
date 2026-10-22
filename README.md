@@ -92,8 +92,9 @@ Use another config file with `--config /path/config.yml`. `filenav config` print
 | `filenav passcode` | set a new passcode (logs everyone out) |
 | `filenav reset-passkeys` | remove all passkeys (recovery if you're locked out) |
 | `filenav logout-all` | end all sessions |
+| `filenav update` | update to the latest release: checks GitHub, verifies the SHA-256, replaces the binary and restarts the service (`--check` to only check, `--version v1.2.3` for a specific version) |
 
-**Upgrading:** download the new binary, then run `filenav setup --force`.
+**Upgrading:** `filenav update` (use `sudo filenav update` if the binary is in a root-owned directory such as `/usr/local/bin`).
 
 ## HTTPS / domain
 

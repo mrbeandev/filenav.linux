@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.1.0] - 2026-10-22
+
+### Added
+- `filenav update`: checks the latest GitHub release and, if it is newer, downloads it, verifies the SHA-256 against `SHA256SUMS`, replaces the binary atomically and restarts the systemd service. Options: `--check`, `--yes`, `--force`, `--version vX.Y.Z`.
+
 ## [1.0.0] - 2026-10-22
 
 First public release.

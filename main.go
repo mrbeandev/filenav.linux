@@ -42,6 +42,7 @@ Usage:
   filenav passcode             set/change the login passcode
   filenav reset-passkeys       remove all registered passkeys
   filenav logout-all           invalidate all sessions
+  filenav update               update to the latest release (--check to only check)
   filenav version
 
 Config file: ~/.filenav_linux/config.yml (created on first run; JSON also supported)
@@ -72,6 +73,8 @@ func main() {
 		err = runPrintConfig(args)
 	case "passcode", "reset-passkeys", "logout-all":
 		err = runStateCmd(cmd, args)
+	case "update", "upgrade":
+		err = runUpdate(args)
 	case "version", "--version", "-v":
 		fmt.Println("filenav", version)
 	case "help", "-h", "--help":

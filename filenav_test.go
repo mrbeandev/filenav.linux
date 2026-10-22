@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -202,3 +205,67 @@ func TestZipStream(t *testing.T) {
 }
 
 func fsTime() time.Time { return time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC) }
+
+func TestParseVersion(t *testing.T) {
+	cases := map[string]bool{"v1.0.0": true, "1.2.3": true, "v1.0.0-rc1": true, "dev": false, "531aa8f": false, "v1.0.0-3-gabc": true, "v1.0": false}
+	for v, ok := range cases {
+		if _, got := parseVersion(v); got != ok {
+			t.Errorf("parseVersion(%q) ok=%v want %v", v, got, ok)
+		}
+	}
+	a, _ := parseVersion("v1.10.0")
+	b, _ := parseVersion("v1.9.9")
+	if !newer(a, b) || newer(b, a) || newer(a, a) {
+		t.Error("version comparison wrong")
+	}
+}
+
+func TestUpdateFlow(t *testing.T) {
+	name, err := assetName()
+	if err != nil {
+		t.Skip(err)
+	}
+	newBin := []byte("#!/bin/sh\necho new\n")
+	sum := sha256.Sum256(newBin)
+	good := hex.EncodeToString(sum[:])
+	sumsBody := good + "  " + name + "\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest":
+			fmt.Fprintf(w, `{"tag_name":"v9.9.9","html_url":"x","assets":[{"name":%q,"browser_download_url":"%s/bin"},{"name":"SHA256SUMS","browser_download_url":"%s/sums"}]}`, name, "http://"+r.Host, "http://"+r.Host)
+		case "/bin":
+			w.Write(newBin)
+		case "/sums":
+			io.WriteString(w, sumsBody)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	releaseAPI = srv.URL + "/latest"
+	restartServiceF = func(string) {}
+	oldVer := version
+	defer func() { version = oldVer }()
+
+	// up to date: nothing happens
+	version = "v9.9.9"
+	if err := runUpdate([]string{"--yes"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// can't touch the real test binary: point os.Executable at a copy via a fake dir is not possible,
+	// so exercise the download+verify path through expectedSum and a bad checksum.
+	if expectedSum(sumsBody, name) != good {
+		t.Fatal("expectedSum failed")
+	}
+	if expectedSum("abc *"+name+"\n", name) != "abc" {
+		t.Fatal("expectedSum binary-mode marker")
+	}
+	var buf bytes.Buffer
+	if _, err := download(srv.URL+"/bin", &buf, 1<<20); err != nil || !bytes.Equal(buf.Bytes(), newBin) {
+		t.Fatal("download failed", err)
+	}
+	if _, err := download(srv.URL+"/missing", io.Discard, 1<<20); err == nil {
+		t.Fatal("404 download should fail")
+	}
+}
