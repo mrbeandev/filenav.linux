@@ -30,6 +30,10 @@ func TestParseMovieName(t *testing.T) {
 		{"some_movie_without_year.avi", "some movie without year", 0},
 		{"Dune.Part.Two.2024.WEB-DL.mkv", "Dune Part Two", 2024},
 		{"1917 (2019) 1080p.mkv", "1917", 2019},
+		{"Blade.Runner.2049.2017.1080p.mkv", "Blade Runner 2049", 2017},
+		{"Blade.Runner.2049.mkv", "Blade Runner 2049", 0},
+		{"2012.2009.1080p.BluRay.mkv", "2012", 2009},
+		{"The.Year.2099.mkv", "The Year 2099", 0},
 	}
 	for _, c := range cases {
 		title, year, _ := parseMovieName(c.in)

@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="assets/hero.webp" alt="filenav: a tiny self-hosted file manager, shown on a laptop and a phone" width="100%">
+  <img src="assets/hero.webp" alt="filenav: a tiny self-hosted file manager with a movies library, shown on a laptop and a phone" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/mrbeandev/filenav.linux/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/mrbeandev/filenav.linux?color=6c8cff"></a>
+  <a href="https://github.com/mrbeandev/filenav.linux/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/mrbeandev/filenav.linux?color=0a84ff&label=release"></a>
   <a href="https://github.com/mrbeandev/filenav.linux/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mrbeandev/filenav.linux/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Go" src="https://img.shields.io/badge/go-stdlib%20only-00ADD8">
@@ -11,7 +11,7 @@
 
 # filenav
 
-**A tiny self-hosted web file manager for Linux.** It's one static binary (~10 MB) with no dependencies, no database and no Docker.
+**A tiny self-hosted web file manager for Linux.** It's one static binary (~12 MB) with no dependencies, no database and no Docker.
 It uses **~8 MB of RAM when idle**, so it's a good fit for small VPSes and Raspberry Pis where Nextcloud is too heavy.
 
 - **Browse and manage**: upload, download, rename, move, copy, delete, search
@@ -20,8 +20,9 @@ It uses **~8 MB of RAM when idle**, so it's a good fit for small VPSes and Raspb
 - **Passkeys** (Face ID / fingerprint / Windows Hello / security keys), with a passcode as fallback
 - **Code editor** (CodeMirror, 100+ languages) for any text file; Markdown rendering
 - **Previews** for images (including HEIC and TIFF), video, audio and PDF
-- **Movies library**: drop videos in a folder, press Scan: posters, details and English subtitles, organised as `Title (Year)/` (TMDB + OpenSubtitles, your own free API keys)
-- **Plays almost any video**: unsupported formats (HEVC, AC3/DTS audio, AVI…) are converted on the fly when `ffmpeg` is installed
+- **Movies library**: drop videos in a folder, press Scan: posters, cast, official trailers and English subtitles, organised as `Title (Year)/` (TMDB + OpenSubtitles, your own free API keys)
+- **Plays almost any video** in the Video.js player: unsupported formats (HEVC, AC3/DTS audio, AVI…) are streamed as HLS and converted only while you watch, when `ffmpeg` is installed
+- **Storage analyzer**: what's using your disk, from a cached index kept current live (2.5 M files scanned in 1.3 s)
 - **Installable app (PWA)** with a mobile-friendly UI, dark and light themes
 - **One-command service**: `filenav setup` installs it as a systemd service; `filenav update` keeps it current
 
@@ -29,16 +30,20 @@ It uses **~8 MB of RAM when idle**, so it's a good fit for small VPSes and Raspb
 
 <img src="assets/browse.webp" alt="File list on desktop and phone" width="100%">
 
+<img src="assets/movies.webp" alt="Movies library with posters on desktop, movie page on a phone" width="100%">
+
 <table>
   <tr>
-    <td width="50%"><img src="assets/share.webp" alt="Share dialog and public share page with uploads"></td>
-    <td width="50%"><img src="assets/uploads.webp" alt="Resumable upload progress"></td>
+    <td width="50%"><img src="assets/movie.webp" alt="Movie page with plot, cast, trailer and play buttons"></td>
+    <td width="50%"><img src="assets/player.webp" alt="Video player with controls"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/editor.webp" alt="Code editor with syntax highlighting"></td>
-    <td width="50%"><img src="assets/mobile.webp" alt="Phone layout: selection bar, menu and share page"></td>
+    <td width="50%"><img src="assets/storage.webp" alt="Storage analyzer with ring chart and largest folders"></td>
+    <td width="50%"><img src="assets/share.webp" alt="Share dialog on desktop and phone"></td>
   </tr>
 </table>
+
+<img src="assets/editor.webp" alt="Code editor with syntax highlighting" width="100%">
 
 ## Install
 

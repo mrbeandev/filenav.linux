@@ -70,7 +70,6 @@ type Actor struct {
 // ---------- filename parsing ----------
 
 var (
-	reYear     = regexp.MustCompile(`(?:^|[\s.\-_(\[])((?:19|20)\d{2})(?:$|[\s.\-_)\]])`)
 	reJunk     = regexp.MustCompile(`(?i)\b(2160p|1080p|720p|480p|4k|uhd|hdr10?\+?|dv|dolby.?vision|bluray|blu-ray|brrip|bdrip|web-?dl|webrip|web|hdrip|dvdrip|hdtv|remux|x26[45]|h\.?26[45]|hevc|avc|xvid|divx|aac|ac3|eac3|dts(?:-?hd)?|ddp?5\.1|atmos|truehd|10bit|8bit|proper|repack|extended|unrated|remastered|imax|internal|limited|multi|dual|yify|yts|rarbg|psa|amzn|nf|dsnp|hmax|atvp)\b`)
 	reBrackets = regexp.MustCompile(`\[[^\]]*\]|\{[^}]*\}`)
 	reIMDb     = regexp.MustCompile(`\btt\d{7,9}\b`)
@@ -78,6 +77,27 @@ var (
 )
 
 // parseMovieName guesses title and year from a file or folder name.
+// lastYear finds the last 19xx/20xx token delimited by separators. Done by hand
+// because a regexp would consume the separator shared by adjacent years.
+func lastYear(s string) (year, at int) {
+	sep := func(i int) bool {
+		return i < 0 || i >= len(s) || strings.ContainsRune(" ._-()[]", rune(s[i]))
+	}
+	maxYear := time.Now().Year() + 1
+	at = -1
+	for i := 0; i+4 <= len(s); i++ {
+		if !sep(i-1) || !sep(i+4) {
+			continue
+		}
+		y, err := strconv.Atoi(s[i : i+4])
+		if err != nil || y < 1900 || y > maxYear {
+			continue
+		}
+		year, at = y, i
+	}
+	return year, at
+}
+
 func parseMovieName(name string) (title string, year int, imdb string) {
 	imdb = reIMDb.FindString(strings.ToLower(name))
 	base := strings.TrimSuffix(name, path.Ext(name))
@@ -85,14 +105,11 @@ func parseMovieName(name string) (title string, year int, imdb string) {
 		base = name // folder names: keep dots-as-decimals like "2001.A.Space.Odyssey"
 	}
 	s := reBrackets.ReplaceAllString(base, " ")
-	// the LAST plausible year is the release year ("2001 A Space Odyssey 1968")
+	// the LAST plausible year is the release year ("2001 A Space Odyssey 1968",
+	// "Blade Runner 2049 2017"); years in the future are part of the title
 	cut := len(s)
-	if m := reYear.FindAllStringSubmatchIndex(s, -1); len(m) > 0 {
-		last := m[len(m)-1]
-		if last[2] > 0 { // a year at the very start is part of the title
-			year, _ = strconv.Atoi(s[last[2]:last[3]])
-			cut = last[2]
-		}
+	if y, at := lastYear(s); at > 0 { // a year at the very start is part of the title
+		year, cut = y, at
 	}
 	if j := reJunk.FindStringIndex(s); j != nil && j[0] < cut && j[0] > 0 {
 		cut = j[0]

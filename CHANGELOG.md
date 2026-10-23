@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.2.3] - 2026-10-23
+
+### Fixed
+- Movie names with a number that looks like a year before the real year ("Blade.Runner.2049.2017") were matched to the wrong film. Years in the future are now treated as part of the title, and adjacent years are parsed correctly.
+
+### Changed
+- README screenshots and banner updated for the redesign, Movies, the player, Storage and the new share dialog.
+
 ## [1.2.2] - 2026-10-23
 
 ### Fixed
