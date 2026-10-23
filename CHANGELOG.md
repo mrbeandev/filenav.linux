@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.2.2] - 2026-10-23
+
+### Fixed
+- Video player overflowed the window on wide or short screens (the control bar was pushed below the visible area). The player is now letterboxed to fit the available space, using the video's real aspect ratio.
+
 ## [1.2.1] - 2026-10-23
 
 ### Added

@@ -79,7 +79,12 @@ async function mountPlayer(container, rel, { subs = [], autoplay = true, poster,
   const skin = h('video-skin', { class: 'fn-skin' }, media);
   const player = h('video-player', poster ? { poster } : {}, skin);
   const badge = hls ? h('div', { class: 'pl-badge' }, plan.mode === 'video' ? 'Converted for this device' : 'Audio converted') : null;
-  container.replaceChildren(h('div', { class: 'pl' }, player, badge));
+  const box = h('div', { class: 'pl' }, player, badge);
+  // aspect ratio from the probe (or the video once loaded) sizes the box
+  const setAR = (w, hh) => { if (w > 0 && hh > 0) box.style.setProperty('--ar', `${w} / ${hh}`); };
+  if (info?.video) setAR(info.video.width, info.video.height);
+  media.addEventListener('loadedmetadata', () => setAR(media.videoWidth, media.videoHeight));
+  container.replaceChildren(box);
   if (badge) setTimeout(() => badge.classList.add('fade'), 4000);
   let retried = false;
   media.addEventListener('error', () => {
