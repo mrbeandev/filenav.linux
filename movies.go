@@ -879,6 +879,30 @@ func (s *Server) handleMoviesSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"results": out})
 }
 
+var reYouTubeKey = regexp.MustCompile(`^[A-Za-z0-9_-]{6,20}$`)
+
+// handleMovieTrailer looks up the official trailer on TMDB (on demand, so
+// every movie in the library gets one without rescanning).
+func (s *Server) handleMovieTrailer(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("tmdb_id"), 10, 64)
+	if err != nil || id <= 0 {
+		jsonErr(w, 400, "bad tmdb_id")
+		return
+	}
+	set := s.movies.settings()
+	v, err := tmdbTrailer(set.TMDBKey, id, firstLang(set.SubLangs))
+	if err != nil {
+		jsonErr(w, 502, err.Error())
+		return
+	}
+	if v == nil || !reYouTubeKey.MatchString(v.Key) {
+		jsonErr(w, 404, "no trailer found for this movie")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	writeJSON(w, map[string]any{"youtube": v.Key, "name": v.Name, "official": v.Official, "type": v.Type})
+}
+
 // handleMoviesMatch assigns a TMDB movie to a plan item (from Unknown).
 func (s *Server) handleMoviesMatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1086,8 +1110,7 @@ func (s *Server) handleSubVTT(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-cache")
-	shift, _ := strconv.ParseFloat(r.URL.Query().Get("shift"), 64)
-	_, _ = w.Write(shiftVTT(srtToVTT(b), shift))
+	_, _ = w.Write(srtToVTT(b))
 }
 
 var reSrtTime = regexp.MustCompile(`(\d{2}:\d{2}:\d{2}),(\d{3})`)

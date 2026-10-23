@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.2.1] - 2026-10-23
+
+### Added
+- Trailer button on every movie page: plays the official trailer (picked from TMDB, YouTube privacy-enhanced embed).
+
+### Changed
+- New video player: Video.js 10 with its frosted skin (the player used on media-chrome.org): captions menu, playback speed, picture-in-picture, fullscreen, keyboard shortcuts, touch gestures.
+- Converted playback now uses on-demand HLS: the player sees the full movie, so its normal seek bar, duration and subtitles work, and iPhone/Safari can play converted videos. Segments are created only as you watch: the converter pauses when it is about a minute ahead, stops 90 s after playback ends, and only one video conversion runs at a time. Audio-only conversion copies the video and cuts at its real keyframes.
+- Referrer-Policy is now `strict-origin` (was `no-referrer`) so YouTube embeds work; only the site origin is ever sent.
+
 ## [1.2.0] - 2026-10-23
 
 ### Added

@@ -27,6 +27,7 @@ type Server struct {
 	shareLimit *limiter
 	challenges *challengeStore
 	analyzer   *Analyzer
+	hls        *hlsManager
 	movies     *MovieLib
 
 	upMu    sync.Mutex
@@ -45,6 +46,7 @@ func NewServer(cfg Config, absRoot string, root *os.Root, st *Store, web fs.FS) 
 		upLocks:    map[string]*sync.Mutex{},
 	}
 	s.loadUploads()
+	s.hls = newHLSManager(cfg.Data)
 	if cfg.Analyzer {
 		s.analyzer = NewAnalyzer(absRoot, cfg.Data)
 	}
@@ -107,6 +109,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/movies/apply", wr(mv(s.handleMoviesApply)))
 	m.HandleFunc("POST /api/movies/cancel", a(mv(s.handleMoviesCancel)))
 	m.HandleFunc("GET /api/movies/search", a(mv(s.handleMoviesSearch)))
+	m.HandleFunc("GET /api/movies/trailer", a(mv(s.handleMovieTrailer)))
 	m.HandleFunc("POST /api/movies/match", a(mv(s.handleMoviesMatch)))
 	m.HandleFunc("POST /api/movies/subs", wr(mv(s.handleMovieSubs)))
 	m.HandleFunc("GET /api/movies/settings", a(mv(s.handleMediaSettingsGet)))
@@ -115,7 +118,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/tmdb-img", a(mv(s.handleTMDBImage)))
 	m.HandleFunc("GET /api/vtt", a(s.handleSubVTT))
 	m.HandleFunc("GET /api/media/probe", a(s.handleMediaProbe))
-	m.HandleFunc("GET /api/media/stream", a(s.handleMediaStream))
+	m.HandleFunc("GET /api/media/hls", a(s.handleHLSStart))
+	m.HandleFunc("GET /api/media/hls/{id}/index.m3u8", a(s.handleHLSPlaylist))
+	m.HandleFunc("GET /api/media/hls/{id}/{seg}", a(s.handleHLSSegment))
 	m.HandleFunc("POST /api/analyze/cancel", a(requireFeature(s.cfg.Analyzer, "the storage analyzer is disabled in the config", s.handleAnalyzeCancel)))
 	m.HandleFunc("POST /api/upload/init", wr(s.handleUploadInit))
 	m.HandleFunc("PUT /api/upload/{uid}", wr(s.handleUploadChunk))
@@ -142,7 +147,9 @@ func (s *Server) routes() {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Referrer-Policy", "no-referrer")
+	// origin only (never paths/file names): YouTube embeds refuse to play
+	// without knowing the embedding site (error 153)
+	h.Set("Referrer-Policy", "strict-origin")
 	h.Set("X-Frame-Options", "SAMEORIGIN")
 	if s.isHTTPS(r) {
 		h.Set("Strict-Transport-Security", "max-age=31536000")
@@ -151,7 +158,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 const uiCSP = "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; " +
-	"style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self'; object-src 'none'; " +
+	"style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self' https://www.youtube-nocookie.com; worker-src 'self' blob:; object-src 'none'; " +
 	"base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
 
 func (s *Server) serveAsset(name string) http.HandlerFunc {

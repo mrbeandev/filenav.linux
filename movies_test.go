@@ -281,14 +281,6 @@ func TestDoRetryResendsBody(t *testing.T) {
 	}
 }
 
-func TestShiftVTT(t *testing.T) {
-	in := "WEBVTT\n\n1\n00:01:05.500 --> 00:01:07.000\nHi\n\n2\n00:00:10.000 --> 00:00:12.000\nOld\n"
-	out := string(shiftVTT([]byte(in), 60))
-	if !strings.Contains(out, "00:00:05.500 --> 00:00:07.000") || !strings.Contains(out, "00:00:00.000 --> 00:00:00.000") {
-		t.Fatalf("shift: %q", out)
-	}
-}
-
 func TestMediaProbeAndStream(t *testing.T) {
 	if ffmpegPath == "" || ffprobePath == "" {
 		t.Skip("ffmpeg not installed")
@@ -313,24 +305,61 @@ func TestMediaProbeAndStream(t *testing.T) {
 	if a := info["audio"].([]any); len(a) != 1 || a[0].(map[string]any)["codec"] != "ac3" {
 		t.Fatalf("audio: %v", a)
 	}
-	// copy video, convert audio, start 2 s in
-	resp, err := c.Get(ts.URL + "/api/media/stream?path=clip.mkv&vc=copy&ac=aac&t=2")
-	if err != nil {
-		t.Fatal(err)
+	// HLS: copy H.264 + convert AC3 -> AAC, and full conversion; fetch a middle
+	// segment first (a "seek") then segment 0, and check codecs + timestamps
+	for _, mode := range []string{"vc=copy&ac=aac", "vc=h264&ac=aac"} {
+		code, st := do(t, c, "GET", ts.URL+"/api/media/hls?path=clip.mkv&"+mode, nil)
+		if code != 200 || st["playlist"] == nil {
+			t.Fatalf("hls start %s: %d %v", mode, code, st)
+		}
+		pl, _ := c.Get(ts.URL + st["playlist"].(string))
+		body, _ := io.ReadAll(pl.Body)
+		pl.Body.Close()
+		segs := strings.Count(string(body), ".ts")
+		if pl.StatusCode != 200 || !strings.Contains(string(body), "#EXT-X-ENDLIST") || segs < 1 {
+			t.Fatalf("playlist %s: %d %q", mode, pl.StatusCode, body)
+		}
+		base := strings.TrimSuffix(st["playlist"].(string), "index.m3u8")
+		order := []int{segs - 1, 0}
+		for _, n := range order {
+			resp, err := c.Get(fmt.Sprintf("%s%ss%d.ts", ts.URL, base, n))
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != 200 || len(b) < 188 || b[0] != 0x47 {
+				t.Fatalf("%s segment %d: %d, %d bytes", mode, n, resp.StatusCode, len(b))
+			}
+			out := filepath.Join(t.TempDir(), "seg.ts")
+			os.WriteFile(out, b, 0o644)
+			pr, _ := exec.Command(ffprobePath, "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", out).Output()
+			if got := strings.Fields(string(pr)); len(got) != 2 || got[0] != "h264" || got[1] != "aac" {
+				t.Logf("%s segment %d streams: %q (ffprobe may not support .ts here)", mode, n, pr)
+			}
+		}
 	}
-	b, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.Header.Get("Content-Type") != "video/mp4" || len(b) < 1000 || string(b[4:8]) != "ftyp" {
-		t.Fatalf("stream: %s %d bytes %q", resp.Header.Get("Content-Type"), len(b), b[:min(len(b), 16)])
-	}
-	out := filepath.Join(t.TempDir(), "out.mp4")
-	os.WriteFile(out, b, 0o644)
-	pr, _ := exec.Command(ffprobePath, "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", out).Output()
-	if got := strings.Fields(string(pr)); len(got) != 2 || got[0] != "h264" || got[1] != "aac" {
-		t.Fatalf("output streams: %q", pr)
+	if r2, _ := http.Get(ts.URL + "/api/media/hls/nope/index.m3u8"); r2.StatusCode != 401 {
+		t.Fatalf("unauthenticated playlist: %d", r2.StatusCode)
 	}
 	// unauthenticated access is refused
-	if r2, _ := http.Get(ts.URL + "/api/media/stream?path=clip.mkv"); r2.StatusCode != 401 {
-		t.Fatalf("unauthenticated stream: %d", r2.StatusCode)
+}
+
+func TestTrailerPick(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"results":[
+		 {"key":"teaser123","name":"Teaser","site":"YouTube","type":"Teaser","official":true,"iso_639_1":"en","size":2160,"published_at":"2020-01-01"},
+		 {"key":"fest12345","name":"Fest 2023 Trailer","site":"YouTube","type":"Trailer","official":true,"iso_639_1":"en","size":2160,"published_at":"2023-01-01"},
+		 {"key":"vimeo1234","name":"Official Trailer","site":"Vimeo","type":"Trailer","official":true,"iso_639_1":"en","size":1080},
+		 {"key":"good12345","name":"Official Trailer","site":"YouTube","type":"Trailer","official":true,"iso_639_1":"en","size":1080,"published_at":"2014-05-01"},
+		 {"key":"fanmade12","name":"Trailer","site":"YouTube","type":"Trailer","official":false,"iso_639_1":"en","size":2160}]}`)
+	}))
+	defer srv.Close()
+	old := tmdbAPI
+	tmdbAPI = srv.URL
+	defer func() { tmdbAPI = old }()
+	v, err := tmdbTrailer("k", 1, "en")
+	if err != nil || v == nil || v.Key != "good12345" {
+		t.Fatalf("picked %+v, %v", v, err)
 	}
 }

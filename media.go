@@ -1,31 +1,20 @@
 package main
 
-// Smart video playback. The browser plays files directly whenever it can;
-// for formats it can't (HEVC on devices without a decoder, AC3/DTS/TrueHD
-// audio, AVI, ...) filenav converts only the part that's needed while
-// streaming, using ffmpeg if it's installed:
-//
-//   - video copied + audio converted to AAC: almost no CPU
-//   - video converted to H.264 (max 720p, x264 ultrafast): ~0.2-0.5 core
-//
-// Output is fragmented MP4 piped straight to the client; nothing is written
-// to disk. Seeking restarts the stream at the requested time (?t=).
+// Video probing (ffprobe). The browser decides from this whether it can play
+// a file directly; if not, it asks for an on-demand HLS stream (hls.go).
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -178,131 +167,6 @@ func (s *Server) handleMediaProbe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ffmpeg": true, "info": info})
 }
 
-// one video conversion at a time: a new one (e.g. after seeking) replaces the old
-var (
-	tcMu     sync.Mutex
-	tcCancel context.CancelFunc
-)
-
-func (s *Server) handleMediaStream(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	rel, err := cleanRel(q.Get("path"))
-	if err != nil || rel == "" {
-		jsonErr(w, 400, "invalid path")
-		return
-	}
-	if ffmpegPath == "" {
-		jsonErr(w, http.StatusNotImplemented, "ffmpeg is not installed on the server")
-		return
-	}
-	t, _ := strconv.ParseFloat(q.Get("t"), 64)
-	if t < 0 || t > 1e6 {
-		t = 0
-	}
-	aidx, _ := strconv.Atoi(q.Get("a"))
-	if aidx < 0 || aidx > 63 {
-		aidx = 0
-	}
-	vcopy := q.Get("vc") == "copy"
-	acopy := q.Get("ac") == "copy"
-	f, _, err := s.openMedia(rel)
-	if err != nil {
-		fsErr(w, err)
-		return
-	}
-	defer f.Close()
-
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	if !vcopy {
-		tcMu.Lock()
-		if tcCancel != nil {
-			tcCancel()
-		}
-		tcCancel = cancel
-		tcMu.Unlock()
-	}
-
-	args := []string{"-hide_banner", "-v", "error", "-nostdin"}
-	if t > 0 {
-		args = append(args, "-ss", strconv.FormatFloat(t, 'f', 2, 64))
-	}
-	args = append(args, "-i", "/dev/fd/3", "-map", "0:v:0?", "-map", fmt.Sprintf("0:a:%d?", aidx))
-	if vcopy {
-		args = append(args, "-c:v", "copy", "-tag:v", "hvc1") // tag only applies to HEVC (needed by Safari/Chrome in MP4)
-	} else {
-		args = append(args, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p",
-			"-vf", "scale=w='min(1280,iw)':h=-2", "-g", "48", "-keyint_min", "48", "-sc_threshold", "0", "-threads", "0")
-	}
-	if acopy {
-		args = append(args, "-c:a", "copy")
-	} else {
-		args = append(args, "-c:a", "aac", "-ac", "2", "-b:a", "160k")
-	}
-	args = append(args, "-sn", "-dn", "-max_muxing_queue_size", "1024",
-		"-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1")
-	// HEVC tag must not be applied to H.264 copies
-	if vcopy {
-		args = stripHVC1UnlessHEVC(args, f)
-	}
-
-	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
-	cmd.ExtraFiles = []*os.File{f}
-	var stderr bytes.Buffer
-	cmd.Stderr = &limitedBuf{b: &stderr, max: 4096}
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		jsonErr(w, 500, err.Error())
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		jsonErr(w, 500, "ffmpeg: "+err.Error())
-		return
-	}
-	_ = syscall.Setpriority(syscall.PRIO_PROCESS, cmd.Process.Pid, 10) // file browsing stays responsive
-	h := w.Header()
-	h.Set("Content-Type", "video/mp4")
-	h.Set("Cache-Control", "no-store")
-	h.Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(200)
-	rc := http.NewResponseController(w)
-	buf := make([]byte, 128<<10)
-	for {
-		n, rerr := out.Read(buf)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				cancel()
-				break
-			}
-			_ = rc.Flush()
-		}
-		if rerr != nil {
-			break
-		}
-	}
-	_ = cmd.Wait()
-	if ctx.Err() == nil && cmd.ProcessState != nil && !cmd.ProcessState.Success() {
-		log.Printf("media: ffmpeg failed for %s: %s", rel, strings.TrimSpace(stderr.String()))
-	}
-}
-
-// stripHVC1UnlessHEVC removes "-tag:v hvc1" when the source video isn't HEVC.
-func stripHVC1UnlessHEVC(args []string, f *os.File) []string {
-	info, err := probeMedia(f, "")
-	if err == nil && info.Video != nil && info.Video.Codec == "hevc" {
-		return args
-	}
-	out := args[:0:0]
-	for i := 0; i < len(args); i++ {
-		if args[i] == "-tag:v" && i+1 < len(args) && args[i+1] == "hvc1" {
-			i++
-			continue
-		}
-		out = append(out, args[i])
-	}
-	return out
-}
-
 type limitedBuf struct {
 	b   *bytes.Buffer
 	max int
@@ -317,33 +181,4 @@ func (l *limitedBuf) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
-}
-
-var reVTTTime = regexp.MustCompile(`(\d{2,}):(\d{2}):(\d{2})\.(\d{3})`)
-
-// shiftVTT moves every cue earlier by sec seconds (for streams started at ?t=).
-func shiftVTT(b []byte, sec float64) []byte {
-	if sec <= 0 {
-		return b
-	}
-	lines := strings.Split(string(b), "\n")
-	for i, ln := range lines {
-		if !strings.Contains(ln, "-->") {
-			continue
-		}
-		lines[i] = reVTTTime.ReplaceAllStringFunc(ln, func(m string) string {
-			p := reVTTTime.FindStringSubmatch(m)
-			hh, _ := strconv.Atoi(p[1])
-			mm, _ := strconv.Atoi(p[2])
-			ss, _ := strconv.Atoi(p[3])
-			ms, _ := strconv.Atoi(p[4])
-			t := float64(hh*3600+mm*60+ss) + float64(ms)/1000 - sec
-			if t < 0 {
-				t = 0
-			}
-			total := int(t*1000 + 0.5)
-			return fmt.Sprintf("%02d:%02d:%02d.%03d", total/3600000, total/60000%60, total/1000%60, total%1000)
-		})
-	}
-	return []byte(strings.Join(lines, "\n"))
 }

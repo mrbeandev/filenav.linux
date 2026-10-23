@@ -192,6 +192,7 @@ function renderMovie(d, dir) {
           h('div', { class: 'mv-facts' }, [m.rating ? '★ ' + m.rating.toFixed(1) : '', fmtRuntime(m.runtime), (m.genres || []).join(', ')].filter(Boolean).join('  ·  ')),
           h('div', { class: 'row wrap', style: { marginTop: '14px' } },
             h('button', { class: 'btn primary mv-play', onclick: play, html: icon('play') + 'Play' }),
+            m.tmdb_id ? h('button', { class: 'btn', onclick: e => playTrailer(m, e.currentTarget), html: icon('vid') + '<span>Trailer</span>' }) : null,
             h('a', { class: 'btn', href: dlURL(video), html: icon('download') + '<span class="lbl">Download</span>' }),
             m.imdb_id ? h('a', { class: 'btn', href: 'https://www.imdb.com/title/' + m.imdb_id + '/', target: '_blank', rel: 'noopener noreferrer' }, 'IMDb') : null)))),
     h('div', { class: 'mv-body' },
@@ -213,6 +214,17 @@ function renderMovie(d, dir) {
             try { const r = await api('POST', '/api/movies/subs', { dir: m.dir }); toast(r.status === 'ok' ? 'Subtitle downloaded' : r.status === 'pending' ? 'Not available right now (limit reached?)' : 'No subtitle found'); showMovies('m/' + encodeURIComponent(m.dir)); }
             catch (x) { toast(x.message, true); e.target.disabled = false; }
           } }, 'Fetch')))));
+}
+
+async function playTrailer(m, btn) {
+  btn.disabled = true;
+  try {
+    const t = await api('GET', '/api/movies/trailer?tmdb_id=' + m.tmdb_id);
+    const src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(t.youtube)}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+    const frame = h('iframe', { src, title: t.name || 'Trailer', allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowfullscreen: true, referrerpolicy: 'strict-origin' });
+    modal(`${m.title}: ${t.official ? 'Official ' : ''}${t.type || 'Trailer'}`, h('div', { class: 'mv-trailer' }, frame), { cls: 'full trailer' });
+  } catch (e) { toast(e.status === 404 ? 'No trailer found for this movie' : e.message, true); }
+  finally { btn.disabled = false; }
 }
 
 function playMovie(m) {

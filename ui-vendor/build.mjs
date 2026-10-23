@@ -6,7 +6,7 @@ import { rmSync, readdirSync, statSync } from 'node:fs';
 const out = '../web/vendor';
 rmSync(out, { recursive: true, force: true });
 await build({
-  entryPoints: { editor: 'src/editor.js', markdown: 'src/markdown.js' },
+  entryPoints: { editor: 'src/editor.js', markdown: 'src/markdown.js', player: 'src/player.js' },
   bundle: true, splitting: true, format: 'esm', minify: true, target: 'es2020',
   outdir: out, chunkNames: 'c/[hash]', legalComments: 'none', logLevel: 'warning',
 });

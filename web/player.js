@@ -40,74 +40,58 @@ function formatLabel(info) {
     a && (AUDIO_LABEL[a.codec] || a.codec.toUpperCase()) + (a.channels > 2 ? ` ${a.channels === 6 ? '5.1' : a.channels === 8 ? '7.1' : a.channels + 'ch'}` : '')].filter(Boolean).join(' · ');
 }
 
-/* Creates a player for `rel` (root-relative path) inside `container`.
-   subs: [{ src, lang, label }] (src = /api/vtt?path=...). Returns { video, destroy }. */
-async function mountPlayer(container, rel, { subs = [], autoplay = true, onInfo } = {}) {
-  const v = h('video', { controls: true, playsinline: true, preload: 'metadata', autoplay });
-  const status = h('div', { class: 'pl-status hidden' });
-  const wrap = h('div', { class: 'pl' }, v, status);
-  container.replaceChildren(wrap);
-  const direct = dlURL(rel, true);
-  let probe = null;
-  try { probe = await api('GET', '/api/media/probe?path=' + encPath(rel)); } catch { }
+let vjsLoad;
+const loadVJS = () => vjsLoad || (vjsLoad = import('/assets/vendor/player.js'));
+
+/* Creates a Video.js player for `rel` (root-relative path) inside `container`.
+   Plays the file directly when the browser can; otherwise asks the server for
+   an on-demand HLS stream (only the incompatible part is converted).
+   subs: [{ src, lang, label }]. Returns { video, info, plan }. */
+async function mountPlayer(container, rel, { subs = [], autoplay = true, poster, onInfo } = {}) {
+  container.replaceChildren(h('div', { class: 'pl-loading' }, h('div', { class: 'spinner' })));
+  const [, probe] = await Promise.all([
+    loadVJS().catch(() => null),
+    api('GET', '/api/media/probe?path=' + encPath(rel)).catch(() => null),
+  ]);
   const info = probe?.info;
-  const plan = info ? await playbackPlan(info, extOf(rel)) : { mode: 'direct' };
+  let plan = info ? await playbackPlan(info, extOf(rel)) : { mode: 'direct' };
+  if (arguments[2]?.force && plan.mode === 'direct') plan = { mode: 'video', vc: 'h264', ac: 'aac' };
   if (onInfo) onInfo(info, plan, probe);
 
-  let offset = 0; // seconds into the source where the current stream starts
-  const duration = info?.duration || 0;
-  const addSubs = shift => {
-    [...v.querySelectorAll('track')].forEach(t => t.remove());
-    subs.forEach((s, i) => v.append(h('track', { kind: 'subtitles', src: s.src + (shift ? `&shift=${shift.toFixed(2)}` : ''), srclang: s.lang, label: s.label, default: i === 0 })));
-    if (subs.length) setTimeout(() => { if (v.textTracks[0]) v.textTracks[0].mode = 'showing'; }, 50);
-  };
-  const showStatus = (txt, kind = '') => { status.className = 'pl-status ' + kind; status.textContent = txt; status.classList.toggle('hidden', !txt); };
+  const fail = msg => container.replaceChildren(h('div', { class: 'viewer-msg' },
+    h('div', { class: 'vm-name' }, 'Can\u2019t play this video'),
+    h('div', { class: 'dim', style: { maxWidth: '460px' } }, msg),
+    info ? h('div', { class: 'dim small' }, formatLabel(info)) : null,
+    h('a', { class: 'btn primary', href: dlURL(rel), html: icon('download') + 'Download' })));
 
-  const fail = msg => {
-    showStatus('');
-    wrap.replaceChildren(h('div', { class: 'viewer-msg' },
-      h('div', { class: 'vm-name' }, 'Can\u2019t play this video'),
-      h('div', { class: 'dim', style: { maxWidth: '460px' } }, msg),
-      info ? h('div', { class: 'dim small' }, formatLabel(info)) : null,
-      h('a', { class: 'btn primary', href: dlURL(rel), html: icon('download') + 'Download' })));
-  };
-
-  if (plan.mode === 'direct') {
-    v.src = direct;
-    addSubs(0);
-    v.addEventListener('error', () => {
-      // direct play failed after all (e.g. codec mismatch): try a converted stream once
-      if (probe?.ffmpeg && !v.dataset.retried) { v.dataset.retried = 1; startStream({ mode: 'video', vc: 'h264', ac: 'aac' }, v.currentTime || 0); }
-      else fail(probe?.ffmpeg === false ? 'Your browser doesn\u2019t support this format, and the server has no ffmpeg to convert it (install ffmpeg on the server).' : 'Your browser doesn\u2019t support this format.');
-    });
-    return { video: v, info, plan };
+  let src = dlURL(rel, true), hls = false;
+  if (plan.mode !== 'direct') {
+    if (!probe?.ffmpeg) { fail('This format needs conversion, but ffmpeg isn\u2019t installed on the server (e.g. apt install ffmpeg). You can still download it.'); return { info, plan }; }
+    try {
+      const st = await api('GET', '/api/media/hls?' + new URLSearchParams({ path: rel, vc: plan.vc, ac: plan.ac }));
+      src = st.playlist; hls = true;
+    } catch (e) { fail(e.message); return { info, plan }; }
   }
-  if (!probe?.ffmpeg) { fail('This format needs conversion, but ffmpeg isn\u2019t installed on the server. Install it (e.g. apt install ffmpeg) or download the file.'); return { video: v, info, plan }; }
-
-  // converted stream: the browser sees a live stream starting at `offset`,
-  // so the seek bar is rebuilt on top of the native controls.
-  let cur = plan;
-  function startStream(p, at) {
-    cur = p;
-    offset = Math.max(0, Math.min(at || 0, duration ? duration - 1 : at));
-    const q = new URLSearchParams({ path: rel, t: offset.toFixed(2), vc: p.vc, ac: p.ac });
-    v.src = '/api/media/stream?' + q;
-    addSubs(offset);
-    showStatus(p.mode === 'video' ? 'Converting video for this device…' : 'Converting audio…', 'busy');
-    v.play().catch(() => { });
-  }
-  v.addEventListener('playing', () => showStatus(''));
-  v.addEventListener('waiting', () => { if (cur.mode === 'video') showStatus('Buffering…', 'busy'); });
-  v.addEventListener('error', () => fail('The server couldn\u2019t convert this file.'));
-  // custom seek bar (native one only covers the converted part)
-  const seek = h('input', { type: 'range', class: 'pl-seek', min: 0, max: duration || 1, step: 1, value: 0 });
-  const time = h('span', { class: 'pl-time' }, '0:00');
-  const fmt = s => { s = Math.max(0, Math.floor(s)); const hh = Math.floor(s / 3600), mm = Math.floor(s / 60) % 60, ss = s % 60; return (hh ? hh + ':' + String(mm).padStart(2, '0') : mm) + ':' + String(ss).padStart(2, '0'); };
-  let dragging = false;
-  v.addEventListener('timeupdate', () => { if (!dragging) { seek.value = offset + v.currentTime; } time.textContent = `${fmt(offset + v.currentTime)} / ${fmt(duration)}`; });
-  seek.addEventListener('input', () => { dragging = true; time.textContent = `${fmt(+seek.value)} / ${fmt(duration)}`; });
-  seek.addEventListener('change', () => { dragging = false; startStream(cur, +seek.value); });
-  wrap.append(h('div', { class: 'pl-bar' }, h('span', { class: 'pl-badge' }, cur.mode === 'video' ? 'Converted' : 'Audio converted'), seek, time));
-  startStream(plan, 0);
-  return { video: v, info, plan };
+  const tracks = subs.map((s, i) => h('track', { kind: 'subtitles', src: s.src, srclang: s.lang, label: s.label, default: i === 0 }));
+  const media = hls
+    ? h('hlsjs-video', { src, playsinline: true, autoplay, crossorigin: 'use-credentials', preload: 'auto' }, ...tracks)
+    : h('video', { src, playsinline: true, autoplay, crossorigin: 'use-credentials', preload: 'metadata' }, ...tracks);
+  const skin = h('video-skin', { class: 'fn-skin' }, media);
+  const player = h('video-player', poster ? { poster } : {}, skin);
+  const badge = hls ? h('div', { class: 'pl-badge' }, plan.mode === 'video' ? 'Converted for this device' : 'Audio converted') : null;
+  container.replaceChildren(h('div', { class: 'pl' }, player, badge));
+  if (badge) setTimeout(() => badge.classList.add('fade'), 4000);
+  let retried = false;
+  media.addEventListener('error', () => {
+    // direct play failed after all (e.g. codec the probe didn't predict): convert once
+    if (!hls && probe?.ffmpeg && !retried) {
+      retried = true;
+      mountPlayer(container, rel, { subs, autoplay, poster, onInfo, force: true });
+    }
+  });
+  if (subs.length) media.addEventListener('loadedmetadata', () => {
+    const t = [...(media.textTracks || [])].find(x => x.kind === 'subtitles');
+    if (t) t.mode = 'showing';
+  }, { once: true });
+  return { video: media, info, plan };
 }

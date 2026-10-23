@@ -178,6 +178,65 @@ func tmdbSearch(key, title string, year int) ([]tmdbMovie, error) {
 	return r.Results, nil
 }
 
+type tmdbVideo struct {
+	Key       string `json:"key"`
+	Name      string `json:"name"`
+	Site      string `json:"site"`
+	Type      string `json:"type"`
+	Official  bool   `json:"official"`
+	Lang      string `json:"iso_639_1"`
+	Size      int    `json:"size"`
+	Published string `json:"published_at"`
+}
+
+// tmdbTrailer returns the best YouTube trailer: official > trailer type >
+// preferred language > highest resolution > oldest (the original release trailer).
+func tmdbTrailer(key string, id int64, lang string) (*tmdbVideo, error) {
+	var r struct {
+		Results []tmdbVideo `json:"results"`
+	}
+	q := url.Values{"include_video_language": {lang + ",en,null"}}
+	if err := tmdbGet(key, "/movie/"+strconv.FormatInt(id, 10)+"/videos", q, &r); err != nil {
+		return nil, err
+	}
+	score := func(v tmdbVideo) int {
+		s := 0
+		if v.Type == "Trailer" {
+			s += 100
+		} else if v.Type == "Teaser" {
+			s += 40
+		}
+		if v.Official {
+			s += 50
+		}
+		if v.Lang == lang {
+			s += 20
+		}
+		// skip re-release / festival / subtitled-international cuts and teasers in the name
+		n := strings.ToLower(v.Name)
+		for _, bad := range []string{"teaser", "fest", "re-release", "anniversary", "4k restoration", "subtitled", "int'l", "international", "tv spot", "clip"} {
+			if strings.Contains(n, bad) {
+				s -= 30
+			}
+		}
+		if strings.Contains(n, "official trailer") {
+			s += 10
+		}
+		return s + v.Size/360 // resolution only breaks ties (1080 -> +3, 2160 -> +6)
+	}
+	var best *tmdbVideo
+	for i := range r.Results {
+		v := r.Results[i]
+		if v.Site != "YouTube" || v.Key == "" || (v.Type != "Trailer" && v.Type != "Teaser") {
+			continue
+		}
+		if best == nil || score(v) > score(*best) || score(v) == score(*best) && v.Published < best.Published {
+			best = &v
+		}
+	}
+	return best, nil
+}
+
 func tmdbDetails(key string, id int64) (*tmdbMovie, error) {
 	var m tmdbMovie
 	err := tmdbGet(key, "/movie/"+strconv.FormatInt(id, 10), url.Values{"append_to_response": {"credits"}}, &m)
