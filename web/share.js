@@ -102,6 +102,8 @@ function render() {
       h('button', { class: 'btn ghost small', onclick: async () => upload(await pickFiles(true)) }, 'or upload a whole folder'))));
   }
   if (i.is_dir && !i.upload_only) kids.push(h('div', { class: 'container' }, h('div', { class: 'toolbar sharebar', id: 'bar' }), h('div', { id: 'list' })));
+  kids.push(h('div', { class: 'row', style: { justifyContent: 'center', margin: '8px 0 32px' } },
+    h('button', { class: 'btn ghost small', onclick: showRclone, html: icon('code') + 'Use with rclone / WebDAV' })));
   $('#root').replaceChildren(h('div', {}, ...kids));
 }
 
@@ -147,3 +149,18 @@ function renderList() {
 }
 
 boot();
+
+// rclone config for visitors; with a password the config includes it (obscured)
+async function showRclone() {
+  const get = async password => api('POST', base + '/api/rclone', { password });
+  if (!V.info.has_password) { try { modal('rclone / WebDAV', rclonePanel(await get('')), { cls: 'wide' }); } catch (e) { toast(e.message, true); } return; }
+  const pf = passwordField({ placeholder: 'Link password', autocomplete: 'current-password' });
+  const err = h('div', { class: 'err' });
+  const body = h('div', {}, h('div', { class: 'small dim', style: { marginBottom: '10px' } }, 'Enter the link password to include it in the config.'),
+    h('form', { onsubmit: async e => {
+      e.preventDefault(); err.textContent = '';
+      try { body.replaceChildren(rclonePanel(await get(pf.input.value))); }
+      catch (x) { err.textContent = x.message; }
+    } }, pf.el, h('button', { class: 'btn primary', type: 'submit', style: { marginTop: '10px' } }, 'Show config'), err));
+  modal('rclone / WebDAV', body, { cls: 'wide' });
+}

@@ -95,7 +95,8 @@ func (s *Server) handleShareCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = s.st.Update(func(st *State) error { st.Shares[sh.ID] = sh; return nil })
-	writeJSON(w, s.shareView(r, sh))
+	out := s.shareView(r, sh)
+	writeJSON(w, map[string]any{"share": out, "url": out.URL, "id": sh.ID, "rclone": s.rcloneOut(r, sh, req.Password)})
 }
 
 func (s *Server) handleShareDelete(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +154,7 @@ func (s *Server) handlePubInfo(w http.ResponseWriter, r *http.Request) {
 		"upload_only":  sh.UploadOnly,
 		"title":        s.cfg.Title,
 		"chunk_size":   s.cfg.ChunkSize,
+		"has_password": sh.PassHash != "",
 	}
 	if !sh.Expires.IsZero() {
 		out["expires"] = sh.Expires

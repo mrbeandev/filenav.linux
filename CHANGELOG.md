@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.3.0] - 2026-10-26
+
+### Added
+- rclone / WebDAV access for share links. Every share has a WebDAV address that follows the same rules as the web page (password, expiry, download limit, read-only, upload-only drop box; visitors can never delete, rename or overwrite). The share dialog and the public page show a ready-to-paste rclone config (password included, already obscured). Large uploads go in 16 MB pieces using rclone's Nextcloud chunked-upload mode, so they work behind Cloudflare's 100 MB request limit. Needs rclone 1.63 or newer. Checksums are returned so `rclone check` can verify uploads.
+
 ## [1.2.3] - 2026-10-23
 
 ### Fixed

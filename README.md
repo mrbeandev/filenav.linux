@@ -17,6 +17,7 @@ It uses **~8 MB of RAM when idle**, so it's a good fit for small VPSes and Raspb
 - **Browse and manage**: upload, download, rename, move, copy, delete, search
 - **Large files**: resumable chunked uploads that survive network drops; resumable downloads; video seeking
 - **Share links** with optional password, expiry, download limit, and **visitor uploads** (including an upload-only "drop box" mode)
+- **rclone / WebDAV** for share links: copy-paste rclone config from the share dialog; big uploads go in pieces, so they work behind Cloudflare
 - **Passkeys** (Face ID / fingerprint / Windows Hello / security keys), with a passcode as fallback
 - **Code editor** (CodeMirror, 100+ languages) for any text file; Markdown rendering
 - **Previews** for images (including HEIC and TIFF), video, audio and PDF

@@ -626,8 +626,9 @@ async function shareDialog(full, isDir) {
         allow_upload: mode.value !== 'view', upload_only: mode.value === 'drop', max_downloads: Number(maxDl.value) || 0,
       });
       copyText(s.url);
+      const det = h('details', { class: 'rc-details' }, h('summary', { html: icon('code') + '<span>Use with rclone / WebDAV</span>' }), rclonePanel(s.rclone));
       result.replaceChildren(h('div', { class: 'linkbox' }, h('input', { class: 'input', readonly: true, value: s.url, onclick: e => e.target.select() }),
-        h('button', { class: 'btn primary', onclick: () => copyText(s.url), html: icon('copy') })));
+        h('button', { class: 'btn primary', onclick: () => copyText(s.url), html: icon('copy') })), det);
       drawExisting(); load(true);
     } catch (e) { toast(e.message, true); }
   };
@@ -657,6 +658,10 @@ function shareItem(s, refresh) {
       h('div', { class: 'small dim' }, '/' + s.path.split('/').slice(0, -1).join('/')),
       h('div', { class: 'small dim wrapline' }, flags.join(' · '))),
     h('button', { class: 'btn ghost', title: 'Copy link', html: icon('copy'), onclick: () => copyText(s.url) }),
+    h('button', { class: 'btn ghost', title: 'rclone / WebDAV config', html: icon('code'), onclick: async () => {
+      try { const rc = await api('GET', '/api/shares/' + s.id + '/rclone'); modal('rclone / WebDAV', rclonePanel(rc), { cls: 'wide' }); }
+      catch (e) { toast(e.message, true); }
+    } }),
     h('a', { class: 'btn ghost', title: 'Open', href: s.url, target: '_blank', rel: 'noopener', html: icon('eye') }),
     h('button', { class: 'btn ghost danger', title: 'Revoke', html: icon('trash'), onclick: async () => {
       if (!await confirm2('Revoke link', 'Anyone with this link will lose access.', 'Revoke')) return;

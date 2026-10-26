@@ -130,6 +130,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/shares", a(s.handleShareList))
 	m.HandleFunc("POST /api/shares", a(sh(s.handleShareCreate)))
 	m.HandleFunc("DELETE /api/shares/{id}", a(s.handleShareDelete))
+	m.HandleFunc("GET /api/shares/{id}/rclone", a(sh(s.handleShareRclone)))
 
 	// shares (public)
 	m.HandleFunc("GET /s/{id}", s.serveAsset("share.html"))
@@ -142,6 +143,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /s/{id}/zip", sh(s.handlePubZip))
 	m.HandleFunc("POST /s/{id}/api/upload/init", sh(s.handlePubUploadInit))
 	m.HandleFunc("PUT /s/{id}/api/upload/{uid}", sh(s.handlePubUploadChunk))
+	// WebDAV for rclone / file managers (Nextcloud-style paths for pieced uploads)
+	m.HandleFunc("/s/{id}/dav/{rest...}", s.handleDAV)
+	m.HandleFunc("POST /s/{id}/api/rclone", sh(s.handlePubRclone))
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -276,6 +280,7 @@ func (s *Server) janitor(ctx context.Context) {
 func (s *Server) cleanup() {
 	s.loginLimit.GC()
 	s.shareLimit.GC()
+	s.cleanDavTemp()
 	s.challenges.GC()
 	now := time.Now()
 	_ = s.st.Update(func(st *State) error {

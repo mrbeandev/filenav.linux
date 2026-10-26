@@ -643,3 +643,14 @@ body.has-selbar .uploads { bottom: 86px; }
 .mv-trailer iframe { width: min(100%, calc((92vh - 60px) * 16 / 9)); aspect-ratio: 16 / 9; border: 0; }
 @media (max-width: 640px) { .mv-trailer iframe { width: 100%; } }
 .modal .body > .preview:has(> .pl), .modal .body > .preview:has(> .pl-loading) { flex: 1; min-width: 0; width: 100%; padding: 0; background: #000; }
+
+/* rclone / WebDAV panel */
+.rc { display: grid; gap: 12px; min-width: 0; }
+.rc-block { display: grid; gap: 4px; min-width: 0; }
+.rc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rc-code { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--fill, rgba(127,127,127,.12)); font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; overflow-x: auto; user-select: all; }
+.rc code, .rc-url { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; }
+.rc-details { margin-top: 10px; }
+.rc-details > summary { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; color: var(--acc); font-weight: 500; list-style: none; padding: 4px 0; }
+.rc-details > summary::-webkit-details-marker { display: none; }
+.rc-details[open] > summary { margin-bottom: 10px; }

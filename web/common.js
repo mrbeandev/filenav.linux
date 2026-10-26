@@ -179,6 +179,21 @@ function toast(msg, bad = false) {
   toastTimer = setTimeout(() => t.remove(), bad ? 5000 : 2500);
 }
 
+// rclone / WebDAV access panel for a share (owner dialog and public page)
+function rclonePanel(rc) {
+  const block = (label, text) => h('div', { class: 'rc-block' },
+    h('div', { class: 'rc-head' }, h('span', { class: 'small dim' }, label),
+      h('button', { class: 'btn ghost small', html: icon('copy') + '<span class="lbl">Copy</span>', onclick: () => copyText(text) })),
+    h('pre', { class: 'rc-code' }, text));
+  return h('div', { class: 'rc' },
+    h('div', { class: 'rc-intro small dim' }, 'Use this link from the command line or a file manager. Paste the block into ', h('code', {}, 'rclone config file'),
+      ' (', h('code', {}, '~/.config/rclone/rclone.conf'), '), rclone ', rc.min_version, ' or newer. Large files upload in 16 MB pieces.'),
+    block('rclone config', rc.config.trim()),
+    rc.pass_command ? block('then add the password', rc.pass_command) : null,
+    block('use it', rc.command),
+    h('div', { class: 'small dim' }, 'WebDAV address for file managers: ', h('code', { class: 'rc-url' }, rc.url), ' (user: share, password: the link password)'));
+}
+
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); toast('Link copied'); }
   catch {
