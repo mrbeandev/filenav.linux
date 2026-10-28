@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.3.1] - 2026-10-28
+
+### Changed
+- Breadcrumb: larger text (15 px) and more vertical padding, easier to tap.
+
+### Added
+- Loading feedback everywhere: a thin progress bar at the top for any request slower than 150 ms; opening a folder shows a spinner on the row, then the folder's title, path and skeleton rows; Storage, Movies, the viewer, Settings, share lists and the public share page show loaders; search shows a spinner in the search field.
+- Buttons that do work (Unlock, Save, Create link, Organise, Scan, Fetch, Revoke, log out device…) show a spinner and can't be pressed twice.
+- File operations (delete, move, copy, rename, new folder) show a small "Deleting 3 items…" pill while they run.
+
+### Fixed
+- Clicking through folders quickly could briefly show an older folder's contents (out-of-order responses are now ignored). Same for search.
+
 ## [1.3.0] - 2026-10-26
 
 ### Added

@@ -3,12 +3,14 @@
 
 const shareID = location.pathname.split('/')[2];
 const base = '/s/' + encodeURIComponent(shareID);
-const V = { info: null, path: '', entries: [], sel: new Set() };
+const V = { info: null, path: '', entries: null, sel: new Set() };
 let uploader;
 
 async function boot() {
+  const ld = setTimeout(() => { if (!$('#root').children.length) $('#root').replaceChildren(h('div', { class: 'view-loading', style: { minHeight: '70vh' } }, h('div', { class: 'spin' }))); }, 150);
   try { V.info = await api('GET', base + '/api/info'); }
-  catch (e) { return fatal(e.message); }
+  catch (e) { clearTimeout(ld); return fatal(e.message); }
+  clearTimeout(ld);
   document.title = V.info.name + ' — ' + V.info.title;
   if (V.info.needs_pass) return renderPassword();
   if (V.info.allow_upload) {
@@ -34,16 +36,19 @@ function renderPassword() {
   const err = h('div', { class: 'err' });
   const pf = passwordField({ placeholder: 'Password', autofocus: true, autocomplete: 'current-password', 'aria-label': 'Password' });
   const pw = pf.input;
+  const openBtn = h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Open');
   $('#root').replaceChildren(h('div', { class: 'center' }, h('div', { class: 'card' },
     h('h1', {}, iconEl('lock', 'logo'), V.info.name),
     h('div', { class: 'dim' }, 'This link is password protected.'),
     h('form', {
-      onsubmit: async e => {
+      onsubmit: e => {
         e.preventDefault(); err.textContent = '';
-        try { await api('POST', base + '/api/unlock', { password: pw.value }); location.reload(); }
-        catch (x) { err.textContent = x.message; pw.select(); }
+        busy(openBtn, async () => {
+          try { await api('POST', base + '/api/unlock', { password: pw.value }); location.reload(); await new Promise(() => {}); }
+          catch (x) { err.textContent = x.message; pw.select(); }
+        });
       }
-    }, pf.el, h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Open'), err))));
+    }, pf.el, openBtn, err))));
 }
 
 const subFromHash = () => decodeURIComponent(location.hash.replace(/^#\/?/, '')).replace(/\/+$/, '');
@@ -59,11 +64,15 @@ function pubOpts(name, size, sub) {
 }
 const dl = (p, inline) => base + '/dl?path=' + encPath(p) + (inline ? '&inline=1' : '');
 
+let loadSeq = 0;
 async function load() {
   V.path = subFromHash();
   V.sel.clear();
-  try { const d = await api('GET', base + '/api/list?path=' + encPath(V.path)); V.entries = d.entries; }
-  catch (e) { toast(e.message, true); V.entries = []; }
+  const seq = ++loadSeq;
+  const sk = setTimeout(() => { const l = $('#list'); if (l && seq === loadSeq) l.replaceChildren(skeletonRows(6)); }, 120);
+  try { const d = await api('GET', base + '/api/list?path=' + encPath(V.path)); if (seq !== loadSeq) return; V.entries = d.entries; }
+  catch (e) { if (seq !== loadSeq) return; toast(e.message, true); V.entries = []; }
+  finally { clearTimeout(sk); }
   renderList();
 }
 
@@ -101,7 +110,7 @@ function render() {
     }), h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '-6px' } },
       h('button', { class: 'btn ghost small', onclick: async () => upload(await pickFiles(true)) }, 'or upload a whole folder'))));
   }
-  if (i.is_dir && !i.upload_only) kids.push(h('div', { class: 'container' }, h('div', { class: 'toolbar sharebar', id: 'bar' }), h('div', { id: 'list' })));
+  if (i.is_dir && !i.upload_only) kids.push(h('div', { class: 'container' }, h('div', { class: 'toolbar sharebar', id: 'bar' }), h('div', { id: 'list' }, V.entries ? null : skeletonRows(6))));
   kids.push(h('div', { class: 'row', style: { justifyContent: 'center', margin: '8px 0 32px' } },
     h('button', { class: 'btn ghost small', onclick: showRclone, html: icon('code') + 'Use with rclone / WebDAV' })));
   $('#root').replaceChildren(h('div', {}, ...kids));
@@ -153,14 +162,17 @@ boot();
 // rclone config for visitors; with a password the config includes it (obscured)
 async function showRclone() {
   const get = async password => api('POST', base + '/api/rclone', { password });
-  if (!V.info.has_password) { try { modal('rclone / WebDAV', rclonePanel(await get('')), { cls: 'wide' }); } catch (e) { toast(e.message, true); } return; }
+  if (!V.info.has_password) { try { modal('rclone / WebDAV', rclonePanel(await task('Loading…', get(''))), { cls: 'wide' }); } catch (e) { toast(e.message, true); } return; }
   const pf = passwordField({ placeholder: 'Link password', autocomplete: 'current-password' });
   const err = h('div', { class: 'err' });
+  const showBtn = h('button', { class: 'btn primary', type: 'submit', style: { marginTop: '10px' } }, 'Show config');
   const body = h('div', {}, h('div', { class: 'small dim', style: { marginBottom: '10px' } }, 'Enter the link password to include it in the config.'),
-    h('form', { onsubmit: async e => {
+    h('form', { onsubmit: e => {
       e.preventDefault(); err.textContent = '';
-      try { body.replaceChildren(rclonePanel(await get(pf.input.value))); }
-      catch (x) { err.textContent = x.message; }
-    } }, pf.el, h('button', { class: 'btn primary', type: 'submit', style: { marginTop: '10px' } }, 'Show config'), err));
+      busy(showBtn, async () => {
+        try { body.replaceChildren(rclonePanel(await get(pf.input.value))); }
+        catch (x) { err.textContent = x.message; }
+      });
+    } }, pf.el, showBtn, err));
   modal('rclone / WebDAV', body, { cls: 'wide' });
 }

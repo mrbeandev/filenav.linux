@@ -10,8 +10,13 @@ async function showMovies(sub) {
   clearTimeout(MV.poll);
   if (S.view !== 'movies') return;
   let d;
-  try { d = await api('GET', '/api/movies'); }
+  // first visit (or switching page) shows a loader if the request is slow; polling stays quiet
+  const polling = MV.lastSub === sub && MV.data;
+  MV.lastSub = sub;
+  const ld = polling ? null : setTimeout(() => { if (S.view === 'movies') setMain(h('div', { class: 'view-loading' }, h('div', { class: 'spin' }))); }, 150);
+  try { d = await api('GET', '/api/movies', undefined, { quiet: !!polling }); }
   catch (e) { if (e.status === 401) return location.reload(); toast(e.message, true); return; }
+  finally { clearTimeout(ld); }
   if (S.view !== 'movies') return;
   MV.data = d;
   if (sub && sub.startsWith('m/')) return renderMovie(d, decodeURIComponent(sub.slice(2)));
@@ -29,7 +34,7 @@ function jobBanner(d, sub) {
   return h('div', { class: 'mv-job' },
     h('div', { class: 'row' }, h('b', {}, d.job === 'scan' ? 'Scanning for new movies…' : 'Organising movies…'),
       h('span', { class: 'grow' }), h('span', { class: 'dim small' }, d.job_all ? `${d.job_done} / ${d.job_all}` : ''),
-      h('button', { class: 'btn ghost danger', onclick: async () => { await api('POST', '/api/movies/cancel').catch(e => toast(e.message, true)); showMovies(sub); } }, 'Stop')),
+      h('button', { class: 'btn ghost danger', onclick: ev => busy(ev.currentTarget, async () => { await api('POST', '/api/movies/cancel').catch(e => toast(e.message, true)); await showMovies(sub); }) }, 'Stop')),
     h('div', { class: 'bar' }, h('i', { style: { width: pct + '%' } })),
     d.job_msg ? h('div', { class: 'dim small', style: { marginTop: '6px' } }, d.job_msg) : null);
 }
@@ -39,7 +44,7 @@ async function startScan() {
   catch (e) { toast(e.message, true); return; }
   // wait for the scan, then open the review page if there is something to do
   const wait = async () => {
-    const d = await api('GET', '/api/movies').catch(() => null);
+    const d = await api('GET', '/api/movies', undefined, { quiet: true }).catch(() => null);
     if (!d) return;
     if (d.job) { if (S.view === 'movies') showMovies(location.hash.replace(/^#movies\/?/, '')); setTimeout(wait, 1000); return; }
     if (d.plan.length) location.hash = '#movies/review';
@@ -52,7 +57,7 @@ async function startScan() {
 
 function renderLibrary(d) {
   const main = $('#main');
-  const scanBtn = h('button', { class: 'btn primary', disabled: !!d.job || !d.configured, onclick: startScan, html: icon('refresh') + '<span class="lbl">Scan</span>' });
+  const scanBtn = h('button', { class: 'btn primary', disabled: !!d.job || !d.configured, onclick: ev => busy(ev.currentTarget, startScan), html: icon('refresh') + '<span class="lbl">Scan</span>' });
   moviesNav('Movies', null, [scanBtn]);
   const head = [h('h1', { class: 'large-title' }, 'Movies')];
   if (!d.configured) {
@@ -93,7 +98,7 @@ function renderLibrary(d) {
       h('p', { class: 'dim' }, `Copy video files into /${d.dir} (any name like "Interstellar.2014.1080p.mkv"), then press Scan.`),
       h('div', { class: 'row', style: { justifyContent: 'center' } },
         h('button', { class: 'btn', onclick: () => go(d.dir) }, 'Open folder'),
-        h('button', { class: 'btn primary', disabled: !!d.job, onclick: startScan }, 'Scan'))));
+        h('button', { class: 'btn primary', disabled: !!d.job, onclick: ev => busy(ev.currentTarget, startScan) }, 'Scan'))));
 }
 
 // ---------- review (plan) ----------
@@ -103,10 +108,10 @@ function renderReview(d) {
   const sel = new Set(items.filter(i => i.status === 'ready').map(i => i.id));
   const apply = h('button', { class: 'btn primary', disabled: !!d.job }, '');
   const upd = () => { apply.textContent = `Organise ${sel.size}`; apply.disabled = !sel.size || !!d.job; };
-  apply.onclick = async () => {
+  apply.onclick = () => busy(apply, async () => {
     try { await api('POST', '/api/movies/apply', { ids: [...sel] }); toast('Organising…'); location.hash = '#movies'; }
     catch (e) { toast(e.message, true); }
-  };
+  });
   upd();
   moviesNav('Review', 'Movies', [apply]);
   const rows = items.map(it => {
@@ -146,13 +151,13 @@ function pickMatch(it) {
   const search = async () => {
     const q = input.value.trim();
     if (!q) return;
-    results.replaceChildren(h('div', { class: 'dim small', style: { padding: '12px' } }, 'Searching…'));
+    results.replaceChildren(skeletonRows(3));
     try {
       const r = await api('GET', '/api/movies/search?q=' + encodeURIComponent(q));
-      results.replaceChildren(...(r.results.length ? r.results.map(m => h('button', { class: 'mv-result', onclick: async () => {
+      results.replaceChildren(...(r.results.length ? r.results.map(m => h('button', { class: 'mv-result', onclick: ev => busy(ev.currentTarget, async () => {
         try { await api('POST', '/api/movies/match', { id: it.id, tmdb_id: m.tmdb_id }); dlg.close(); toast(`Matched to ${m.title}`); location.hash = '#movies/review'; showMovies('review'); }
         catch (e) { toast(e.message, true); }
-      } },
+      }) },
         h('img', { src: m.poster ? posterURL({ poster: m.poster }, 'w92') : '', alt: '' }),
         h('div', {}, h('b', {}, m.title), h('span', { class: 'dim' }, m.year ? ` (${m.year})` : ''),
           h('div', { class: 'dim small mv-over' }, m.overview || '')))) : [h('div', { class: 'dim small', style: { padding: '12px' } }, 'No results. Try another name or paste the IMDb ID.')]));
@@ -160,15 +165,15 @@ function pickMatch(it) {
   };
   input.addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
   if (it.candidates?.length) {
-    results.replaceChildren(...it.candidates.map(m => h('button', { class: 'mv-result', onclick: async () => {
+    results.replaceChildren(...it.candidates.map(m => h('button', { class: 'mv-result', onclick: ev => busy(ev.currentTarget, async () => {
       try { await api('POST', '/api/movies/match', { id: it.id, tmdb_id: m.tmdb_id }); dlg.close(); location.hash = '#movies/review'; showMovies('review'); }
       catch (e) { toast(e.message, true); }
-    } }, h('img', { src: m.poster ? posterURL({ poster: m.poster }, 'w92') : '', alt: '' }),
+    }) }, h('img', { src: m.poster ? posterURL({ poster: m.poster }, 'w92') : '', alt: '' }),
       h('div', {}, h('b', {}, m.title), h('span', { class: 'dim' }, m.year ? ` (${m.year})` : ''), h('div', { class: 'dim small mv-over' }, m.overview || '')))));
   }
   const dlg = modal('Identify movie', [
     h('div', { class: 'dim small mono', style: { wordBreak: 'break-all' } }, it.src.split('/').pop()),
-    h('div', { class: 'row' }, input, h('button', { class: 'btn primary', onclick: search }, 'Search')),
+    h('div', { class: 'row' }, input, h('button', { class: 'btn primary', onclick: ev => busy(ev.currentTarget, search) }, 'Search')),
     results]);
   if (!it.candidates?.length && it.guess) search();
 }
@@ -209,22 +214,22 @@ function renderMovie(d, dir) {
         h('div', { class: 'cell' }, h('span', { class: 'thumb file', html: icon('doc') }),
           h('div', { class: 'txt' }, h('span', { class: 't1' }, subs.length ? 'Get subtitles again' : 'No subtitles yet'),
             h('span', { class: 't2' }, m.sub_status === 'pending' ? 'Waiting: daily download limit or service error. Retried on next Scan.' : m.sub_status === 'none' ? 'None found on OpenSubtitles' : 'Downloads the best English subtitle')),
-          h('button', { class: 'btn', onclick: async e => {
-            e.target.disabled = true;
-            try { const r = await api('POST', '/api/movies/subs', { dir: m.dir }); toast(r.status === 'ok' ? 'Subtitle downloaded' : r.status === 'pending' ? 'Not available right now (limit reached?)' : 'No subtitle found'); showMovies('m/' + encodeURIComponent(m.dir)); }
-            catch (x) { toast(x.message, true); e.target.disabled = false; }
-          } }, 'Fetch')))));
+          h('button', { class: 'btn', onclick: e => busy(e.currentTarget, async () => {
+            try { const r = await api('POST', '/api/movies/subs', { dir: m.dir }); toast(r.status === 'ok' ? 'Subtitle downloaded' : r.status === 'pending' ? 'Not available right now (limit reached?)' : 'No subtitle found'); await showMovies('m/' + encodeURIComponent(m.dir)); }
+            catch (x) { toast(x.message, true); }
+          }) }, 'Fetch')))));
 }
 
 async function playTrailer(m, btn) {
-  btn.disabled = true;
+  if (btn.classList.contains('is-busy')) return;
+  btn.classList.add('is-busy'); btn.disabled = true;
   try {
     const t = await api('GET', '/api/movies/trailer?tmdb_id=' + m.tmdb_id);
     const src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(t.youtube)}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
     const frame = h('iframe', { src, title: t.name || 'Trailer', allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowfullscreen: true, referrerpolicy: 'strict-origin' });
     modal(`${m.title}: ${t.official ? 'Official ' : ''}${t.type || 'Trailer'}`, h('div', { class: 'mv-trailer' }, frame), { cls: 'full trailer' });
   } catch (e) { toast(e.status === 404 ? 'No trailer found for this movie' : e.message, true); }
-  finally { btn.disabled = false; }
+  finally { btn.disabled = false; btn.classList.remove('is-busy'); }
 }
 
 function playMovie(m) {

@@ -156,10 +156,61 @@ function fmtDuration(sec) {
 }
 
 // ---------- API ----------
-async function api(method, url, body) {
+// ---------- loading feedback ----------
+// A thin top progress bar appears for any request that takes over 150 ms
+// (background polling passes { quiet: true } and doesn't trigger it).
+const Loading = {
+  n: 0, timer: null, bar: null,
+  start() {
+    if (this.n++ === 0) {
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => {
+        if (!this.bar) { this.bar = h('div', { class: 'topbar-progress', role: 'progressbar', 'aria-label': 'Loading' }); document.body.append(this.bar); }
+        this.bar.classList.remove('done'); void this.bar.offsetWidth; this.bar.classList.add('on');
+      }, 150);
+    }
+  },
+  stop() {
+    if (--this.n > 0) return;
+    this.n = 0; clearTimeout(this.timer);
+    if (this.bar && this.bar.classList.contains('on')) { this.bar.classList.add('done'); this.bar.classList.remove('on'); }
+  },
+};
+
+// task(label, promise): a small persistent pill ("Deleting 3 items…") while
+// a file operation runs, for work that continues after its dialog closed.
+const Tasks = { box: null, n: 0 };
+async function task(label, work) {
+  if (!Tasks.box) { Tasks.box = h('div', { class: 'tasks', role: 'status', 'aria-live': 'polite' }); document.body.append(Tasks.box); }
+  const pill = h('div', { class: 'task-pill' }, h('span', { class: 'task-spin' }), h('span', {}, label));
+  const t = setTimeout(() => Tasks.box.append(pill), 200); // fast operations don't flash
+  try { return await (typeof work === 'function' ? work() : work); }
+  finally { clearTimeout(t); pill.remove(); }
+}
+
+// busy(button, promise): disables the button and shows a spinner until done.
+async function busy(btn, work) {
+  if (!btn || btn.classList.contains('is-busy')) return typeof work === 'function' ? undefined : work;
+  btn.classList.add('is-busy'); btn.setAttribute('aria-busy', 'true');
+  const wasDisabled = btn.disabled; btn.disabled = true;
+  try { return await (typeof work === 'function' ? work() : work); }
+  finally { btn.classList.remove('is-busy'); btn.removeAttribute('aria-busy'); btn.disabled = wasDisabled; }
+}
+
+// skeleton rows shown while a list loads for the first time
+function skeletonRows(n = 6, cls = '') {
+  return h('div', { class: 'skel-list ' + cls, 'aria-busy': 'true', 'aria-label': 'Loading' },
+    Array.from({ length: n }, (_, i) => h('div', { class: 'skel-row' }, h('i', { class: 'skel-ic' }), h('i', { class: 'skel-tx', style: { width: (45 + (i * 37) % 40) + '%' } }))));
+}
+
+async function api(method, url, body, { quiet = false } = {}) {
   const opt = { method, headers: { 'X-Filenav': '1' }, credentials: 'same-origin' };
   if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
-  const r = await fetch(url, opt);
+  if (!quiet) Loading.start();
+  let r;
+  try { r = await fetch(url, opt); }
+  catch (e) { if (!quiet) Loading.stop(); throw new Error('Network error, check your connection'); }
+  if (!quiet) Loading.stop();
   let data = null;
   try { data = await r.json(); } catch { }
   if (!r.ok) {
@@ -211,7 +262,7 @@ function modal(title, body, { buttons = [], cls = '', onClose, beforeClose } = {
   const close = () => { if (beforeClose && !beforeClose()) return; forceClose(); };
   const onKey = e => { if (e.key === 'Escape' && bg === $$('.modal-bg').pop()) close(); };
   const footer = buttons.length ? h('footer', {}, buttons.map(b =>
-    h('button', { class: 'btn ' + (b.cls || ''), type: b.submit ? 'submit' : 'button', onclick: b.submit ? null : () => b.onclick(close) }, b.label))) : null;
+    h('button', { class: 'btn ' + (b.cls || ''), type: b.submit ? 'submit' : 'button', onclick: b.submit ? null : ev => { const r = b.onclick(close); if (r && typeof r.then === 'function') busy(ev.currentTarget, r); } }, b.label))) : null;
   const head = h('header', {}, h('h3', {}, title), h('button', { class: 'btn ghost', onclick: close, html: icon('x'), title: 'Close' }));
   const box = h('div', { class: 'modal ' + cls }, head, h('div', { class: 'body' }, body), footer);
   const bg = h('div', { class: 'modal-bg', onmousedown: e => { if (e.target === bg) close(); } }, box);
@@ -521,7 +572,7 @@ const prefersDark = () => matchMedia('(prefers-color-scheme: dark)').matches;
          count?, index?, nav?(i), extra?: [elements] } */
 function openViewer(o) {
   const kind = o.as || viewKind(o.name);
-  const body = h('div', { class: 'viewer' }, h('div', { class: 'viewer-msg dim' }, 'Loading…'));
+  const body = h('div', { class: 'viewer' }, h('div', { class: 'view-loading' }, h('div', { class: 'spin' })));
   let dirty = false, editor = null, blobURL = null, mdMode = 'view', mdSrc = '';
   const cleanup = [];
   const m = modal(o.name, body, {
@@ -573,8 +624,11 @@ function openViewer(o) {
   const markDirty = () => { if (!dirty) { dirty = true; if (saveBtn) saveBtn.disabled = false; } };
   async function save() {
     if (!o.save || !editor) return;
+    if (saveBtn.classList.contains('is-busy')) return;
+    saveBtn.classList.add('is-busy');
     try { await o.save(editor.getValue()); dirty = false; saveBtn.disabled = true; toast('Saved'); }
     catch (e) { toast(e.message, true); }
+    finally { saveBtn.classList.remove('is-busy'); }
   }
   function noPreview(msg) {
     body.replaceChildren(h('div', { class: 'viewer-msg' },
@@ -627,11 +681,12 @@ function openViewer(o) {
   (async () => {
     try {
       if (kind === 'img') {
-        const img = h('img', { src: o.raw, alt: o.name, onclick: () => img.classList.toggle('zoom') });
+        const img = h('img', { src: o.raw, alt: o.name, class: 'img-loading', onclick: () => img.classList.toggle('zoom') });
         img.onerror = () => noPreview('This image could not be displayed.');
-        body.replaceChildren(h('div', { class: 'preview' }, img));
+        img.onload = () => img.classList.remove('img-loading');
+        body.replaceChildren(h('div', { class: 'preview img-wrap' }, img, h('div', { class: 'img-spin spin' })));
       } else if (kind === 'imgdec') {
-        body.replaceChildren(h('div', { class: 'viewer-msg dim' }, 'Decoding image…'));
+        body.replaceChildren(h('div', { class: 'view-loading' }, h('div', { class: 'spin' }), h('div', { class: 'dim small', style: { marginTop: '10px' } }, 'Decoding image…')));
         const buf = await (await fetch(o.raw, { credentials: 'same-origin' })).arrayBuffer();
         const blob = await decodeImage(buf, extOf(o.name));
         blobURL = URL.createObjectURL(blob);

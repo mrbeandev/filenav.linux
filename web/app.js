@@ -29,17 +29,20 @@ function renderLogin() {
   const hasPasskeys = !!window.PublicKeyCredential && S.me.passkeys_on && S.me.passkeys > 0;
   const pf = passwordField({ placeholder: 'Passcode', autocomplete: 'current-password', 'aria-label': 'Passcode' });
   const pass = pf.input;
+  const unlockBtn = h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Unlock');
   const passForm = h('form', {
     class: 'pass-form' + (hasPasskeys ? ' hidden' : ''),
-    onsubmit: async e => {
+    onsubmit: e => {
       e.preventDefault(); err.textContent = '';
-      try { await api('POST', '/api/login', { passcode: pass.value }); location.reload(); }
-      catch (x) { err.textContent = x.message; pass.select(); }
+      busy(unlockBtn, async () => {
+        try { await api('POST', '/api/login', { passcode: pass.value }); location.reload(); await new Promise(() => {}); } // keep spinning until reload
+        catch (x) { err.textContent = x.message; pass.select(); }
+      });
     }
-  }, pf.el, h('button', { class: 'btn primary', type: 'submit', style: { justifyContent: 'center' } }, 'Unlock'));
+  }, pf.el, unlockBtn);
   const showPass = () => { passForm.classList.remove('hidden'); fallback.classList.add('hidden'); pass.focus(); };
   const fallback = h('button', { class: 'btn ghost small', type: 'button', style: { justifyContent: 'center' }, onclick: showPass }, 'Use passcode instead');
-  const pkBtn = h('button', { class: 'btn primary', type: 'button', style: { justifyContent: 'center' }, onclick: () => passkeyLogin(err, false, onPkFail), html: icon('key') + 'Sign in with passkey' });
+  const pkBtn = h('button', { class: 'btn primary', type: 'button', style: { justifyContent: 'center' }, onclick: ev => busy(ev.currentTarget, () => passkeyLogin(err, false, onPkFail)), html: icon('key') + 'Sign in with passkey' });
   const onPkFail = () => { if (!S.me.passkey_only) showPass(); };
   $('#root').replaceChildren(h('div', { class: 'center' }, h('div', { class: 'card' },
     h('h1', {}, iconEl('logo', 'logo'), S.me.title),
@@ -86,7 +89,7 @@ function startApp() {
   const tab = (id, ic, label, fn) => h('button', { 'data-view': id, onclick: fn, html: icon(ic) + `<span>${label}</span>` });
   const goFiles = () => { S.search = null; searchInput.value = ''; location.hash.startsWith('#/') ? go('') : (location.hash = '#/'); };
   const goStorage = () => { location.hash = '#storage'; };
-  const logout = async () => { await api('POST', '/api/logout'); location.reload(); };
+  const logout = async () => { await task('Logging out…', api('POST', '/api/logout').catch(() => {})); location.reload(); };
   $('#root').replaceChildren(h('div', { class: 'app' },
     h('aside', { class: 'sidebar' },
       h('a', { class: 'brand', href: '#/', onclick: e => { e.preventDefault(); goFiles(); } }, iconEl('logo', 'logo'), h('span', {}, S.me.title)),
@@ -138,6 +141,7 @@ function route() {
   $$('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   $('#navbar').classList.remove('scrolled');
   $('#main').scrollTop = 0;
+  if (view !== 'storage') storLast = null;
   if (view === 'movies') { S.sel.clear(); S.clipboard = null; renderSelbar(); return showMovies(hsh.replace(/^#movies\/?/, '')); }
   if (view === 'storage') { S.sel.clear(); S.clipboard = null; renderSelbar(); return showStorage(decodeURIComponent(hsh.replace(/^#storage\/?/, ''))); }
   const p = pathFromHash();
@@ -148,22 +152,42 @@ function route() {
 const pathFromHash = () => decodeURIComponent(location.hash.replace(/^#\/?/, '')).replace(/\/+$/, '');
 function go(p) { location.hash = '#/' + p.split('/').map(encodeURIComponent).join('/'); }
 
+let loadSeq = 0;
 async function load(keepSel) {
   if (S.view === 'movies') return;
   if (S.view === 'storage') { setTimeout(route, 900); return; } // analyzer applies changes within ~1 s
+  const prev = S.path;
   S.path = pathFromHash();
   if (!keepSel) S.sel.clear();
+  const seq = ++loadSeq;
+  // navigating to another folder: show its title + skeleton if the list is slow
+  const skel = prev !== S.path || !S.loaded ? setTimeout(() => { if (seq === loadSeq) renderLoading(); }, 120) : null;
   try {
     const [d, sh] = await Promise.all([api('GET', '/api/list?path=' + encPath(S.path)), S.me.shares_on ? api('GET', '/api/shares') : { shares: [] }]);
+    clearTimeout(skel);
+    if (seq !== loadSeq) return; // user already went elsewhere
     S.entries = d.entries; S.shares = sh.shares; S.loaded = true;
     for (const n of [...S.sel]) if (!S.entries.some(e => e.name === n)) S.sel.delete(n);
   } catch (e) {
+    clearTimeout(skel);
+    if (seq !== loadSeq) return;
     if (e.status === 401) return location.reload();
     toast(e.message, true);
     if (e.status === 404 && S.path) return go(S.path.split('/').slice(0, -1).join('/'));
     S.entries = [];
   }
   render();
+}
+
+// shown while a folder loads: real title + breadcrumb, skeleton rows
+function renderLoading() {
+  if (S.view !== 'files') return;
+  const parts = S.path ? S.path.split('/') : [];
+  const title = parts.length ? parts[parts.length - 1] : 'Files';
+  setNav(title, parts.length ? (parts.length > 1 ? parts[parts.length - 2] : 'Files') : null, fileActions());
+  setMain(h('nav', { class: 'crumbs', id: 'crumbs' }), h('h1', { class: 'large-title' }, title),
+    h('p', { class: 'subtitle' }, 'Loading…'), skeletonRows(8, 'group'));
+  renderCrumbs();
 }
 
 async function loadDisk() {
@@ -175,13 +199,19 @@ async function loadDisk() {
   } catch { }
 }
 
+let searchSeq = 0;
 async function doSearch(q) {
+  const seq = ++searchSeq;
+  const bar = S.searchInput?.parentNode;
+  bar?.classList.add('searching');
   try {
     const r = await api('GET', `/api/search?path=${encPath(S.path)}&q=${encodeURIComponent(q)}`);
+    if (seq !== searchSeq) return; // a newer search is running
     S.search = { q, results: r.results, truncated: r.truncated };
     S.sel.clear();
     render();
-  } catch (e) { toast(e.message, true); }
+  } catch (e) { if (seq === searchSeq) toast(e.message, true); }
+  finally { if (seq === searchSeq) $('.searchbar')?.classList.remove('searching'); }
 }
 
 // ---------- rendering ----------
@@ -264,7 +294,7 @@ function row(e, full, sharedPaths, extraLine) {
     oncontextmenu: ev => { ev.preventDefault(); contextMenu(ev, e, full); },
   },
     h('a', { class: 'open', href: e.dir ? '#/' + full.split('/').map(encodeURIComponent).join('/') : dlURL(full), title: e.name, 'aria-label': e.name,
-      onclick: ev => { ev.preventDefault(); if (S.sel.size && !e.dir) { toggleSel(e.name); return; } openEntry(e, full, cell._list); } }),
+      onclick: ev => { ev.preventDefault(); if (S.sel.size && !e.dir) { toggleSel(e.name); return; } if (e.dir) cell.classList.add('opening'); openEntry(e, full, cell._list); } }),
     extraLine ? null : h('input', { type: 'checkbox', class: 'sel-circle', checked: sel, 'aria-label': 'Select ' + e.name, onclick: ev => { ev.stopPropagation(); toggleSel(e.name); } }),
     fileThumb(e.name, e.dir),
     h('div', { class: 'txt' },
@@ -273,7 +303,8 @@ function row(e, full, sharedPaths, extraLine) {
         e.link ? h('span', { class: 'badge' }, 'Link') : null),
       h('span', { class: 't2' }, extraLine || [e.dir ? 'Folder' : fmtSize(e.size), fmtDate(e.mtime)].filter(Boolean).join(' · '))),
     h('button', { class: 'btn ghost more', 'aria-label': 'More actions', html: icon('more'), onclick: ev => { ev.stopPropagation(); contextMenu(ev, e, full); } }),
-    e.dir ? h('span', { class: 'acc', html: icon('right') }) : null);
+    e.dir ? h('span', { class: 'acc', html: icon('right') }) : null,
+    e.dir ? h('span', { class: 'acc-spin', 'aria-hidden': 'true' }) : null);
   return cell;
 }
 
@@ -335,12 +366,18 @@ function renderSelbar() {
 const CAT_COLORS = { Videos: 'var(--pink)', Images: 'var(--green)', Audio: 'var(--purple)', Documents: 'var(--teal)', Archives: 'var(--orange)', Code: 'var(--indigo)', Other: 'var(--gray)' };
 let storTimer;
 
+let storLast = null;
 async function showStorage(rel) {
   clearTimeout(storTimer);
   if (S.view !== 'storage') return;
   let d;
-  try { d = await api('GET', '/api/analyze?path=' + encPath(rel)); }
+  // navigating (not the 1 s refresh while scanning): loader if slow
+  const refresh = storLast === rel;
+  storLast = rel;
+  const ld = refresh ? null : setTimeout(() => { if (S.view === 'storage') setMain(h('div', { class: 'view-loading' }, h('div', { class: 'spin' }))); }, 150);
+  try { d = await api('GET', '/api/analyze?path=' + encPath(rel), undefined, { quiet: refresh }); }
   catch (e) { if (e.status === 401) return location.reload(); toast(e.message, true); return; }
+  finally { clearTimeout(ld); }
   if (S.view !== 'storage' || location.hash.replace(/^#storage\/?/, '') !== encodeURIComponent(rel).replace(/%2F/g, '/') && decodeURIComponent(location.hash.replace(/^#storage\/?/, '')) !== rel) return;
   const parts = rel ? rel.split('/') : [];
   const title = parts.length ? parts[parts.length - 1] : 'Storage';
@@ -427,13 +464,13 @@ async function confirmRescan(rel, d) {
   const msg = `This re-reads every file and folder on the disk.${took}\n\nYou don't normally need this: the index updates itself when files change. ` +
     `Use it if sizes look wrong. You can cancel the scan while it runs, and the current results stay until it finishes.`;
   if (!await confirm2('Rescan all storage?', msg, 'Rescan', '')) return;
-  try { await api('POST', '/api/analyze/rescan'); } catch (e) { toast(e.message, true); }
+  try { await task('Starting scan…', api('POST', '/api/analyze/rescan')); } catch (e) { toast(e.message, true); }
   showStorage(rel);
 }
 
 async function cancelScan(rel) {
   if (!await confirm2('Stop the scan?', 'The scan stops now. The previous results are kept.', 'Stop Scan', 'danger', 'Keep Scanning')) return;
-  try { await api('POST', '/api/analyze/cancel'); toast('Scan stopped'); }
+  try { await task('Stopping scan…', api('POST', '/api/analyze/cancel')); toast('Scan stopped'); }
   catch (e) { toast(e.message, true); }
   setTimeout(() => showStorage(rel), 300);
 }
@@ -489,33 +526,34 @@ function upload(files) {
 async function newFolder() {
   const name = await prompt2('New folder', null, '', { okLabel: 'Create' });
   if (!name) return;
-  try { await api('POST', '/api/mkdir', { path: S.path, name }); load(); } catch (e) { toast(e.message, true); }
+  try { await task('Creating folder…', api('POST', '/api/mkdir', { path: S.path, name })); load(); } catch (e) { toast(e.message, true); }
 }
 
 async function newFile() {
   const name = await prompt2('New file', null, 'notes.txt', { okLabel: 'Create', selectBase: true });
   if (!name) return;
-  try { const r = await api('POST', '/api/mkdir', { path: S.path, name, file: true }); await load(); openEntry({ name, size: 0 }, r.path); } catch (e) { toast(e.message, true); }
+  try { const r = await task('Creating file…', api('POST', '/api/mkdir', { path: S.path, name, file: true })); await load(); openEntry({ name, size: 0 }, r.path); } catch (e) { toast(e.message, true); }
 }
 
 async function rename(full, name) {
   const nn = await prompt2('Rename', null, name, { okLabel: 'Rename', selectBase: true });
   if (!nn || nn === name) return;
-  try { await api('POST', '/api/rename', { path: full, name: nn }); load(); } catch (e) { toast(e.message, true); }
+  try { await task('Renaming…', api('POST', '/api/rename', { path: full, name: nn })); load(); } catch (e) { toast(e.message, true); }
 }
 
 async function del(paths) {
   const names = paths.map(p => p.split('/').pop());
   const msg = paths.length === 1 ? `Delete “${names[0]}”? This cannot be undone.` : `Delete ${paths.length} items? This cannot be undone.\n\n${names.slice(0, 8).join('\n')}${names.length > 8 ? '\n…' : ''}`;
   if (!await confirm2('Delete', msg)) return;
-  try { await api('POST', '/api/delete', { paths }); toast('Deleted'); } catch (e) { toast(e.message, true); }
+  try { await task(paths.length === 1 ? `Deleting “${names[0]}”…` : `Deleting ${paths.length} items…`, api('POST', '/api/delete', { paths })); toast('Deleted'); } catch (e) { toast(e.message, true); }
   load(); loadDisk();
 }
 
 async function paste() {
   const c = S.clipboard;
   try {
-    await api('POST', c.op === 'move' ? '/api/move' : '/api/copy', { paths: c.paths, dest: S.path });
+    const n = c.paths.length === 1 ? '“' + c.paths[0].split('/').pop() + '”' : c.paths.length + ' items';
+    await task((c.op === 'move' ? 'Moving ' : 'Copying ') + n + '…', api('POST', c.op === 'move' ? '/api/move' : '/api/copy', { paths: c.paths, dest: S.path }));
     toast(c.op === 'move' ? 'Moved' : 'Copied');
   } catch (e) { toast(e.message, true); }
   S.clipboard = null; load(); loadDisk();
@@ -527,6 +565,7 @@ async function moveDialog(paths, copy = false) {
   const label = h('div', { class: 'dim small' });
   const draw = async () => {
     label.textContent = 'Destination: /' + cur;
+    tree.replaceChildren(skeletonRows(4));
     let d;
     try { d = await api('GET', '/api/list?path=' + encPath(cur)); } catch (e) { toast(e.message, true); return; }
     const kids = [];
@@ -542,8 +581,8 @@ async function moveDialog(paths, copy = false) {
   draw();
   modal(copy ? 'Copy to…' : 'Move to…', [label, tree], {
     buttons: [{ label: 'Cancel', onclick: c => c() },
-    { label: 'Copy here', onclick: async c => { c(); try { await api('POST', '/api/copy', { paths, dest: cur }); toast('Copied'); } catch (e) { toast(e.message, true); } load(); } },
-    { label: 'Move here', cls: 'primary', onclick: async c => { c(); try { await api('POST', '/api/move', { paths, dest: cur }); toast('Moved'); } catch (e) { toast(e.message, true); } load(); } }],
+    { label: 'Copy here', onclick: async c => { c(); try { await task(`Copying ${paths.length === 1 ? '“' + paths[0].split('/').pop() + '”' : paths.length + ' items'}…`, api('POST', '/api/copy', { paths, dest: cur })); toast('Copied'); } catch (e) { toast(e.message, true); } load(); } },
+    { label: 'Move here', cls: 'primary', onclick: async c => { c(); try { await task(`Moving ${paths.length === 1 ? '“' + paths[0].split('/').pop() + '”' : paths.length + ' items'}…`, api('POST', '/api/move', { paths, dest: cur })); toast('Moved'); } catch (e) { toast(e.message, true); } load(); } }],
   });
 }
 
@@ -639,7 +678,7 @@ async function shareDialog(full, isDir) {
       h('div', { class: 'grow', style: { minWidth: '160px' } }, h('div', { class: 'small dim' }, 'Password'), pw)),
     !isDir ? h('div', {}, h('div', { class: 'small dim' }, 'Download limit'), maxDl) : null,
     note,
-    h('button', { class: 'btn primary', style: { justifyContent: 'center' }, onclick: create, html: icon('link') + 'Create link & copy' }),
+    h('button', { class: 'btn primary', style: { justifyContent: 'center' }, onclick: ev => busy(ev.currentTarget, create), html: icon('link') + 'Create link & copy' }),
     result, existing,
   ]);
 }
@@ -658,14 +697,15 @@ function shareItem(s, refresh) {
       h('div', { class: 'small dim' }, '/' + s.path.split('/').slice(0, -1).join('/')),
       h('div', { class: 'small dim wrapline' }, flags.join(' · '))),
     h('button', { class: 'btn ghost', title: 'Copy link', html: icon('copy'), onclick: () => copyText(s.url) }),
-    h('button', { class: 'btn ghost', title: 'rclone / WebDAV config', html: icon('code'), onclick: async () => {
+    h('button', { class: 'btn ghost', title: 'rclone / WebDAV config', html: icon('code'), onclick: ev => busy(ev.currentTarget, async () => {
       try { const rc = await api('GET', '/api/shares/' + s.id + '/rclone'); modal('rclone / WebDAV', rclonePanel(rc), { cls: 'wide' }); }
       catch (e) { toast(e.message, true); }
-    } }),
+    }) }),
     h('a', { class: 'btn ghost', title: 'Open', href: s.url, target: '_blank', rel: 'noopener', html: icon('eye') }),
-    h('button', { class: 'btn ghost danger', title: 'Revoke', html: icon('trash'), onclick: async () => {
+    h('button', { class: 'btn ghost danger', title: 'Revoke', html: icon('trash'), onclick: async ev => {
+      const btn = ev.currentTarget;
       if (!await confirm2('Revoke link', 'Anyone with this link will lose access.', 'Revoke')) return;
-      await api('DELETE', '/api/shares/' + s.id); refresh(); load(true);
+      await busy(btn, async () => { try { await api('DELETE', '/api/shares/' + s.id); await refresh(); load(true); } catch (e) { toast(e.message, true); } });
     } }));
 }
 
@@ -675,7 +715,8 @@ async function showShares() {
     const d = await api('GET', '/api/shares');
     list.replaceChildren(...(d.shares.length ? d.shares.map(s => shareItem(s, draw)) : [h('div', { class: 'dim' }, 'No shared links yet. Right-click a file or folder → Share link.')]));
   };
-  draw();
+  list.replaceChildren(skeletonRows(3));
+  draw().catch(e => { list.replaceChildren(h('div', { class: 'dim' }, e.message)); });
   modal('Shared links', list, { cls: 'wide' });
 }
 
@@ -721,9 +762,10 @@ function generalSettings() {
     pkOnly.checked = S.me.passkey_only;
     pkOnly.disabled = !d.passkeys.length;
     pkList.replaceChildren(
-      ...d.passkeys.map(p => srow(p.name, h('button', { class: 'btn ghost danger sm', title: 'Remove', html: icon('trash'), onclick: async () => {
+      ...d.passkeys.map(p => srow(p.name, h('button', { class: 'btn ghost danger sm', title: 'Remove', html: icon('trash'), onclick: async ev => {
+        const btn = ev.currentTarget;
         if (!await confirm2('Remove passkey', `Remove “${p.name}”?`, 'Remove')) return;
-        await api('DELETE', '/api/passkeys/' + p.id); drawPk();
+        await busy(btn, async () => { try { await api('DELETE', '/api/passkeys/' + p.id); await drawPk(); } catch (e) { toast(e.message, true); } });
       } }), { icon: 'key', color: 'var(--indigo)', sub: 'Added ' + fmtDate(p.created) + (new Date(p.last_used).getFullYear() > 1971 ? ' · used ' + fmtDate(p.last_used) : '') })),
       srow(h('span', { class: 'link' }, 'Add Passkey'), null, { icon: 'plus', color: 'var(--green)', cls: 'tap', onclick: addPk }),
       h('label', { class: 'sg-row' }, h('div', { class: 'sg-l' }, h('span', {}, 'Passkey only'), h('small', {}, 'Turns off the passcode fallback')), h('span', { class: 'chk' }, pkOnly)));
@@ -732,13 +774,15 @@ function generalSettings() {
     const d = await api('GET', '/api/sessions');
     sessList.replaceChildren(...d.sessions.sort((a, b) => b.current - a.current || new Date(b.created) - new Date(a.created)).map(s =>
       srow(uaLabel(s.ua), s.current ? h('span', { class: 'badge share' }, 'This device') :
-        h('button', { class: 'btn ghost danger sm', title: 'Log out this device', html: icon('logout'), onclick: async () => { await api('DELETE', '/api/sessions/' + s.id); drawSess(); } }),
+        h('button', { class: 'btn ghost danger sm', title: 'Log out this device', html: icon('logout'), onclick: ev => busy(ev.currentTarget, async () => { try { await api('DELETE', '/api/sessions/' + s.id); await drawSess(); } catch (e) { toast(e.message, true); } }) }),
         { icon: s.current ? 'check' : 'lock', color: s.current ? 'var(--green)' : 'var(--gray)', sub: `${s.ip} · ${s.method} · ${fmtDate(s.created)}` })),
-      srow(h('span', { class: 'link danger' }, 'Log Out Other Devices'), null, { cls: 'tap', onclick: async () => { await api('DELETE', '/api/sessions/others'); drawSess(); toast('Other devices logged out'); } }));
+      srow(h('span', { class: 'link danger' }, 'Log Out Other Devices'), null, { cls: 'tap', onclick: ev => busy(ev.currentTarget.querySelector('.link') || ev.currentTarget, async () => { try { await api('DELETE', '/api/sessions/others'); await drawSess(); toast('Other devices logged out'); } catch (e) { toast(e.message, true); } }) }));
   };
   pkOnly.onchange = async () => {
+    pkOnly.disabled = true;
     try { await api('POST', '/api/settings/passkey-only', { enabled: pkOnly.checked }); toast(pkOnly.checked ? 'Passcode fallback off' : 'Passcode fallback on'); }
     catch (e) { toast(e.message, true); pkOnly.checked = !pkOnly.checked; }
+    finally { pkOnly.disabled = false; }
   };
   const addPk = async () => {
     if (!window.PublicKeyCredential) return toast('Passkeys need HTTPS and a modern browser', true);
@@ -751,14 +795,15 @@ function generalSettings() {
       toast('Passkey added'); drawPk();
     } catch (e) { toast(e.message, true); }
   };
-  if (S.me.passkeys_on) drawPk();
-  drawSess();
+  pkList.replaceChildren(skeletonRows(2)); sessList.replaceChildren(skeletonRows(2));
+  if (S.me.passkeys_on) drawPk().catch(e => toast(e.message, true));
+  drawSess().catch(e => toast(e.message, true));
   const curF = passwordField({ placeholder: 'Required', autocomplete: 'current-password', 'aria-label': 'Current passcode' });
   const nwF = passwordField({ placeholder: 'At least 4 characters', autocomplete: 'new-password', 'aria-label': 'New passcode' });
-  const change = h('button', { class: 'btn primary', onclick: async () => {
+  const change = h('button', { class: 'btn primary', onclick: ev => busy(ev.currentTarget, async () => {
     try { await api('POST', '/api/settings/passcode', { current: curF.input.value, new: nwF.input.value }); toast('Passcode changed'); curF.input.value = nwF.input.value = ''; drawSess(); }
     catch (e) { toast(e.message, true); }
-  } }, 'Change Passcode');
+  }) }, 'Change Passcode');
   return h('div', { class: 'sg-wrap' },
     S.me.passkeys_on ? h('section', { class: 'sg' }, h('div', { class: 'sg-h' }, 'Passkeys'), pkList, h('div', { class: 'sg-f' }, 'Face ID, fingerprint, Windows Hello or a security key.')) : null,
     grp('Passcode', [srow('Current', curF.el, { stack: true }), srow('New', nwF.el, { stack: true })], 'Changing it logs out all other devices.'),
@@ -785,7 +830,9 @@ function movieSettings() {
     osp.input.placeholder = d.os_pass_set ? '••••••••  saved' : 'Password';
     osu.value = d.os_user || ''; dir.value = d.movies_dir || 'movies'; langs.value = d.sub_langs || 'en';
   };
-  api('GET', '/api/movies/settings').then(fill).catch(e => toast(e.message, true));
+  const fields = [tmdb.input, osk.input, osp.input, osu, dir, langs];
+  fields.forEach(f => { f.disabled = true; });
+  api('GET', '/api/movies/settings').then(fill).catch(e => toast(e.message, true)).finally(() => fields.forEach(f => { f.disabled = false; }));
   const save = async (quiet) => {
     const body = { os_user: osu.value, movies_dir: dir.value || 'movies', sub_langs: langs.value || 'en' };
     if (tmdb.input.value) body.tmdb_key = tmdb.input.value;
@@ -824,7 +871,7 @@ function movieSettings() {
     grp(h('span', {}, 'OpenSubtitles ', osState), [srow('API Key', osk.el, { stack: true }), srow('Username', osu, { stack: true }), srow('Password', osp.el, { stack: true })],
       h('span', {}, 'Free accounts get about 20 subtitles a day; the rest are fetched on later scans. ', h('a', { href: 'https://www.opensubtitles.com/consumers', target: '_blank', rel: 'noopener' }, 'Get a key'))),
     grp('Library', [srow('Movies folder', dir, { cls: 'inline' }), srow('Subtitle language', langs, { cls: 'inline' })], 'Folder inside your files. Language as a 2-letter code (en, es, fr…).'),
-    h('div', { class: 'sg-actions' }, h('button', { class: 'btn primary', onclick: () => save(false) }, 'Save'), testBtn),
+    h('div', { class: 'sg-actions' }, h('button', { class: 'btn primary', onclick: ev => busy(ev.currentTarget, () => save(false)) }, 'Save'), testBtn),
     results);
 }
 
