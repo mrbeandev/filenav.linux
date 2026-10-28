@@ -71,6 +71,11 @@ func TestLooksBinary(t *testing.T) {
 
 func newTestServer(t *testing.T, mut func(*Config)) (*httptest.Server, string) {
 	t.Helper()
+	return newTestServerS(t, mut, nil)
+}
+
+func newTestServerS(t *testing.T, mut func(*Config), out **Server) (*httptest.Server, string) {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := defaultConfig()
 	cfg.Root, cfg.Data = filepath.Join(dir, "root"), filepath.Join(dir, "data")
@@ -93,7 +98,11 @@ func newTestServer(t *testing.T, mut func(*Config)) (*httptest.Server, string) {
 	}
 	_ = root.MkdirAll(uploadTmpDir, 0o700)
 	sub, _ := fs.Sub(webFS, "web")
-	ts := httptest.NewServer(NewServer(cfg, cfg.Root, root, st, sub))
+	srv := NewServer(cfg, cfg.Root, root, st, sub)
+	if out != nil {
+		*out = srv
+	}
+	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	return ts, cfg.Root
 }
@@ -343,5 +352,62 @@ func TestAnalyzer(t *testing.T) {
 	}
 	if an2.tree.size != 5030 || an2.tree.files != 3 {
 		t.Fatalf("after refresh: size %d files %d", an2.tree.size, an2.tree.files)
+	}
+}
+
+func TestFolderSize(t *testing.T) {
+	for _, withAnalyzer := range []bool{true, false} {
+		t.Run(fmt.Sprintf("analyzer=%v", withAnalyzer), func(t *testing.T) {
+			var srv *Server
+			ts, root := newTestServerS(t, func(c *Config) { c.Analyzer = withAnalyzer }, &srv)
+			if withAnalyzer {
+				ctx, cancel := context.WithCancel(context.Background())
+				t.Cleanup(cancel)
+				go srv.analyzer.Run(ctx)
+			}
+			os.MkdirAll(filepath.Join(root, "a", "b", "c"), 0o755)
+			os.WriteFile(filepath.Join(root, "a", "one.mp4"), make([]byte, 3000), 0o644)
+			os.WriteFile(filepath.Join(root, "a", "b", "two.jpg"), make([]byte, 2000), 0o644)
+			os.WriteFile(filepath.Join(root, "a", "b", "c", "three.txt"), make([]byte, 1000), 0o644)
+			os.WriteFile(filepath.Join(root, "other.bin"), make([]byte, 50000), 0o644)
+			c := client(t)
+			do(t, c, "POST", ts.URL+"/api/login", map[string]string{"passcode": "test1234"})
+			if withAnalyzer { // wait for the first index
+				for i := 0; i < 100; i++ {
+					_, m := do(t, c, "GET", ts.URL+"/api/analyze?path=", nil)
+					if m["size"] != nil && !m["scanning"].(bool) {
+						break
+					}
+					time.Sleep(50 * time.Millisecond)
+				}
+			}
+			code, m := do(t, c, "GET", ts.URL+"/api/size?path=a", nil)
+			res, _ := m["result"].(map[string]any)
+			if code != 200 || res == nil || res["size"].(float64) != 6000 || res["files"].(float64) != 3 || res["dirs"].(float64) != 2 {
+				t.Fatalf("size a: %d %v", code, m)
+			}
+			if withAnalyzer && res["source"] != "index" {
+				t.Fatalf("expected index result, got %v", res["source"])
+			}
+			// change on disk, then a fresh scan of just that folder updates the numbers
+			os.WriteFile(filepath.Join(root, "a", "b", "four.zip"), make([]byte, 4000), 0o644)
+			code, m = do(t, c, "GET", ts.URL+"/api/size?path=a&fresh=1", nil)
+			res, _ = m["result"].(map[string]any)
+			if code != 200 || res["size"].(float64) != 10000 || res["source"] != "scan" {
+				t.Fatalf("fresh size a: %d %v", code, m)
+			}
+			if withAnalyzer { // the index (Storage view) reflects the folder rescan
+				_, an := do(t, c, "GET", ts.URL+"/api/analyze?path=a", nil)
+				if an["size"].(float64) != 10000 {
+					t.Fatalf("index not updated: %v", an["size"])
+				}
+			}
+			if code, _ := do(t, c, "GET", ts.URL+"/api/size?path=other.bin", nil); code != 400 {
+				t.Fatalf("file: %d", code)
+			}
+			if code, _ := do(t, c, "GET", ts.URL+"/api/size?path=../etc", nil); code == 200 {
+				t.Fatal("escape allowed")
+			}
+		})
 	}
 }

@@ -228,6 +228,7 @@ function fileActions() {
   return [
     ro ? null : h('button', { class: 'btn ghost', title: 'New folder', onclick: newFolder, html: icon('folderPlus') }),
     ro ? null : h('button', { class: 'btn ghost', title: 'New text file', onclick: newFile, html: icon('fileplus') }),
+    h('button', { class: 'btn ghost', title: 'Size of this folder', onclick: () => folderSize(S.path), html: icon('chart') }),
     S.me.shares_on ? h('button', { class: 'btn ghost', title: 'Share this folder', onclick: () => shareDialog(S.path, true), html: icon('share') }) : null,
     ro ? null : h('button', { class: 'btn primary', title: 'Upload', onclick: e => uploadMenu(e), html: icon('upload') + '<span class="lbl hide-sm">Upload</span>' }),
   ];
@@ -385,7 +386,7 @@ async function showStorage(rel) {
   setNav(title, parts.length ? (parts.length > 1 ? parts[parts.length - 2] : 'Storage') : null, [
     d.scanning
       ? h('button', { class: 'btn danger', title: 'Stop the running scan', onclick: () => cancelScan(rel), html: icon('x') + '<span class="lbl hide-sm">Stop Scan</span>' })
-      : h('button', { class: 'btn', title: 'Full rescan (normally not needed: the index updates itself)', onclick: () => confirmRescan(rel, d), html: icon('refresh') + '<span class="lbl hide-sm">Rescan</span>' }),
+      : h('button', { class: 'btn', title: rel ? 'Rescan this folder or the whole drive' : 'Full rescan (normally not needed: the index updates itself)', onclick: ev => rel ? rescanMenu(ev, rel, d) : confirmRescan(rel, d), html: icon('refresh') + '<span class="lbl hide-sm">Rescan</span>' }),
   ]);
   const main = $('#main');
   const crumbs = h('nav', { class: 'crumbs' });
@@ -420,7 +421,7 @@ async function showStorage(rel) {
     isRoot && d.disk_free != null ? h('div', {}, h('i', { style: { background: 'var(--fill2)' } }), 'Free', h('span', {}, fmtSize(d.disk_free))) : null);
   const ago = d.last_scan ? fmtAgo(d.last_scan) : '';
   const meta = h('div', { class: 'stor-meta' },
-    d.scanning ? h('span', {}, `${d.scan_mode === 'full' ? 'Rescanning' : 'Checking for changes'}… ${d.progress.toLocaleString()} folders · showing previous results`) :
+    d.scanning ? h('span', {}, `${d.scan_mode === 'full' ? 'Rescanning' : d.scan_mode === 'folder' ? 'Rescanning a folder' : 'Checking for changes'}… ${d.progress.toLocaleString()} folders · showing previous results`) :
       d.live ? h('span', { class: 'live' }, 'Live: updates automatically') : h('span', {}, 'Checked for changes every 10 minutes'),
     h('span', {}, `${d.files.toLocaleString()} files · ${d.dirs.toLocaleString()} folders`),
     ago ? h('span', {}, `Indexed ${ago}` + (d.scan_ms != null ? ` in ${d.scan_ms < 1000 ? d.scan_ms + ' ms' : (d.scan_ms / 1000).toFixed(1) + ' s'}` : '')) : null,
@@ -468,6 +469,23 @@ async function confirmRescan(rel, d) {
   showStorage(rel);
 }
 
+function rescanMenu(ev, rel, d) {
+  ev.stopPropagation(); closeMenu();
+  const m = h('div', { class: 'menu' },
+    h('button', { onclick: () => { closeMenu(); rescanFolder(rel); }, html: icon('folder') + '<span>Rescan this folder</span>' }),
+    h('button', { onclick: () => { closeMenu(); confirmRescan(rel, d); }, html: icon('refresh') + '<span>Rescan whole drive…</span>' }));
+  if (matchMedia('(max-width: 640px)').matches) document.body.append(h('div', { class: 'menu-bg', onclick: closeMenu }));
+  document.body.append(m);
+  const r = ev.currentTarget.getBoundingClientRect(), mr = m.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.right - mr.width, innerWidth - mr.width - 8)) + 'px';
+  m.style.top = (r.bottom + 6) + 'px';
+}
+async function rescanFolder(rel) {
+  setTimeout(() => showStorage(rel), 300); // shows "Rescanning a folder… N folders" while it runs
+  try { const d = await task(`Rescanning “${rel.split('/').pop()}”…`, api('GET', '/api/size?' + new URLSearchParams({ path: rel, fresh: '1' }))); toast(`Rescanned: ${fmtSize(d.result.size)}`); }
+  catch (e) { toast(e.message, true); }
+  showStorage(rel);
+}
 async function cancelScan(rel) {
   if (!await confirm2('Stop the scan?', 'The scan stops now. The previous results are kept.', 'Stop Scan', 'danger', 'Keep Scanning')) return;
   try { await task('Stopping scan…', api('POST', '/api/analyze/cancel')); toast('Scan stopped'); }
@@ -521,6 +539,53 @@ function upload(files) {
     if (big.length) { toast(`${big.length} file(s) exceed the ${fmtSize(S.me.max_upload)} upload limit and were skipped`, true); files = [...files].filter(f => f.size <= S.me.max_upload); if (!files.length) return; }
   }
   uploader.add(files, S.path);
+}
+
+// Folder size sheet: instant from the storage index, or a live scan of just that folder.
+async function folderSize(rel) {
+  const name = rel ? rel.split('/').pop() : 'Home (all files)';
+  const body = h('div', { class: 'fsize' });
+  let dlg;
+  const show = async fresh => {
+    const started = Date.now();
+    const status = h('div', { class: 'fsize-scan' }, h('div', { class: 'spin' }),
+      h('div', {}, h('b', {}, fresh ? 'Scanning this folder…' : 'Calculating…'), h('div', { class: 'small dim', id: 'fs-elapsed' }, 'Reading every file and subfolder')));
+    if (fresh || !body.children.length) body.replaceChildren(status);
+    const tick = setInterval(() => { const el = $('#fs-elapsed', status); if (el) el.textContent = `Reading every file and subfolder · ${Math.round((Date.now() - started) / 1000)} s`; }, 1000);
+    let d;
+    try { d = await api('GET', '/api/size?' + new URLSearchParams({ path: rel, ...(fresh ? { fresh: '1' } : {}) })); }
+    catch (e) { clearInterval(tick); body.replaceChildren(h('div', { class: 'err', style: { padding: '12px 0' } }, e.message)); return; }
+    clearInterval(tick);
+    if (d.started) { // whole drive: hand over to the Storage view, which shows scan progress
+      dlg.close(); toast('Full storage scan started'); location.hash = '#storage'; return;
+    }
+    render(d.result, d);
+  };
+  const render = (r, d) => {
+    const total = r.size || 1;
+    const bar = h('div', { class: 'fsize-bar' }, r.categories.map(c => h('i', { title: `${c.name}: ${fmtSize(c.bytes)}`, style: { width: (c.bytes / total * 100).toFixed(2) + '%', background: CAT_COLORS[c.name] } })));
+    const when = r.source === 'scan'
+      ? `Scanned just now${r.took_ms != null ? ` in ${r.took_ms < 1000 ? r.took_ms + ' ms' : (r.took_ms / 1000).toFixed(1) + ' s'}` : ''}`
+      : d.live ? 'From the storage index · kept up to date live' : `From the storage index${r.scanned_at && new Date(r.scanned_at).getFullYear() > 1971 ? ' · ' + fmtAgo(r.scanned_at) : ''}`;
+    body.replaceChildren(
+      h('div', { class: 'fsize-hero' },
+        h('div', { class: 'fsize-total' }, fmtSize(r.size)),
+        h('div', { class: 'dim' }, `${r.files.toLocaleString()} file${r.files === 1 ? '' : 's'} · ${r.dirs.toLocaleString()} folder${r.dirs === 1 ? '' : 's'}`)),
+      r.categories.length ? bar : null,
+      r.categories.length ? h('div', { class: 'fsize-legend' }, r.categories.map(c => h('div', {},
+        h('i', { style: { background: CAT_COLORS[c.name] } }), h('span', {}, c.name), h('b', {}, fmtSize(c.bytes)),
+        h('span', { class: 'dim small' }, Math.round(c.bytes / total * 100) + '%')))) : null,
+      r.largest?.length ? h('div', { class: 'fsize-largest' }, h('div', { class: 'group-h' }, 'Largest files'),
+        h('div', { class: 'group' }, r.largest.map(f => h('div', { class: 'cell' }, fileThumb(f.path.split('/').pop(), false),
+          h('div', { class: 'txt' }, h('span', { class: 't1' }, f.path.split('/').pop()), h('span', { class: 't2' }, '/' + f.path.split('/').slice(0, -1).join('/'))),
+          h('span', { class: 'fsize-num' }, fmtSize(f.size)))))) : null,
+      h('div', { class: 'small dim fsize-when' }, when));
+  };
+  const actions = [{ label: 'Rescan', onclick: () => show(true) }];
+  if (S.me.analyzer_on) actions.push({ label: 'Open in Storage', cls: 'primary', onclick: c => { c(); location.hash = '#storage/' + rel.split('/').map(encodeURIComponent).join('/'); } });
+  else actions.push({ label: 'Close', cls: 'primary', onclick: c => c() });
+  dlg = modal(name, body, { buttons: actions });
+  show(false);
 }
 
 async function newFolder() {
@@ -606,6 +671,7 @@ function contextMenu(ev, e, full) {
       if (e.dir) { const dir = full.split('/').slice(0, -1).join('/'); location.href = '/api/zip?' + new URLSearchParams({ dir, names: e.name }); }
       else location.href = dlURL(full);
     }),
+    e.dir ? item('chart', 'Folder size', () => folderSize(full)) : null,
     S.me.shares_on ? item('share', 'Share link…', () => shareDialog(full, e.dir)) : null,
     S.me.read_only ? null : item('edit', 'Rename', () => rename(full, e.name)),
     S.me.read_only ? null : item('folder', 'Move / copy to…', () => moveDialog([full])),

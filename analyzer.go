@@ -808,3 +808,221 @@ func fmtBytes(n int64) string {
 	}
 	return strconv.FormatFloat(f, 'f', 1, 64) + " " + string("KMGTPE"[i]) + "iB"
 }
+
+// ---------- one folder ----------
+
+// ScanSubtree re-reads rel and everything below it from disk (ignoring the
+// cache) and splices the result into the index. Runs as a cancellable scan.
+func (a *Analyzer) ScanSubtree(parent context.Context, rel string) error {
+	if rel == "" {
+		return a.FullScan(parent)
+	}
+	if !a.scanning.CompareAndSwap(false, true) {
+		return errors.New("a scan is already running")
+	}
+	ctx, cancel := context.WithCancel(parent)
+	a.cancelMu.Lock()
+	a.cancelScan, a.scanMode = cancel, "folder"
+	a.cancelMu.Unlock()
+	defer func() {
+		a.cancelMu.Lock()
+		a.cancelScan, a.scanMode = nil, ""
+		a.cancelMu.Unlock()
+		cancel()
+		a.scanning.Store(false)
+	}()
+	a.progress.Store(0)
+	t0 := time.Now()
+	ss := &scanStats{}
+	n := a.scanNode(ctx, nil, a.abs(rel), path.Base(rel), false, make(chan struct{}, max(runtime.NumCPU()*4, 16)), ss)
+	if ctx.Err() != nil {
+		a.mu.Lock()
+		a.lastCancel = time.Now()
+		a.mu.Unlock()
+		return context.Canceled
+	}
+	if n == nil {
+		return fs.ErrNotExist
+	}
+	a.mu.Lock()
+	parentNode := a.lookup(path.Dir("/" + rel)[1:])
+	if path.Dir(rel) == "." {
+		parentNode = a.tree
+	}
+	if parentNode == nil { // index doesn't reach here (yet); a quick refresh will pick it up
+		a.mu.Unlock()
+		return nil
+	}
+	finalize(n, parentNode)
+	replaced := false
+	for i, d := range parentNode.Dirs {
+		if d.Name == n.Name {
+			parentNode.Dirs[i] = n
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		parentNode.Dirs = append(parentNode.Dirs, n)
+	}
+	propagate(parentNode)
+	a.mu.Unlock()
+	log.Printf("analyzer: folder scan %s: %d files in %d folders (%s) in %v", rel, n.files, n.dirs+1, fmtBytes(n.size), time.Since(t0).Round(time.Millisecond))
+	if a.watch != nil {
+		a.watchTree(n, rel)
+	}
+	a.requestSave()
+	return nil
+}
+
+type folderSize struct {
+	Size       int64            `json:"size"`
+	Files      int64            `json:"files"`
+	Dirs       int64            `json:"dirs"`
+	Categories []map[string]any `json:"categories"`
+	Largest    []aLarge         `json:"largest"`
+	Source     string           `json:"source"` // "index" or "scan"
+	ScannedAt  time.Time        `json:"scanned_at,omitempty"`
+	TookMS     *int64           `json:"took_ms,omitempty"`
+}
+
+func nodeSummary(n *aNode, rel string) folderSize {
+	var cb [numCats]int64
+	var walk func(n *aNode)
+	walk = func(n *aNode) {
+		for c := range n.OwnCat {
+			cb[c] += n.OwnCat[c]
+		}
+		for _, d := range n.Dirs {
+			walk(d)
+		}
+	}
+	walk(n)
+	cats := make([]map[string]any, 0, numCats)
+	for c := 0; c < numCats; c++ {
+		if cb[c] > 0 {
+			cats = append(cats, map[string]any{"name": catNames[c], "bytes": cb[c]})
+		}
+	}
+	sort.Slice(cats, func(i, j int) bool { return cats[i]["bytes"].(int64) > cats[j]["bytes"].(int64) })
+	return folderSize{Size: n.size, Files: n.files, Dirs: n.dirs, Categories: cats, Largest: largestFiles(n, rel, 5)}
+}
+
+// liveSize scans a folder directly (analyzer off). One at a time, cancellable
+// by the client disconnecting, capped so a huge tree can't run forever.
+var liveSizeMu sync.Mutex
+
+func (s *Server) liveFolderSize(ctx context.Context, rel string) (*aNode, error) {
+	if !liveSizeMu.TryLock() {
+		return nil, errors.New("another folder size scan is running, try again in a moment")
+	}
+	defer liveSizeMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	a := &Analyzer{root: s.absRoot, skip: uploadTmpDir}
+	abs := a.abs(rel)
+	n := a.scanNode(ctx, nil, abs, path.Base("/"+rel), rel == "", make(chan struct{}, max(runtime.NumCPU()*2, 8)), &scanStats{})
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if n == nil {
+		return nil, fs.ErrNotExist
+	}
+	finalize(n, nil)
+	return n, nil
+}
+
+// GET /api/size?path=&fresh=1
+// From the index when available (instant); otherwise, or with fresh=1, scans
+// the folder (with the analyzer on, the fresh result also updates the index).
+func (s *Server) handleFolderSize(w http.ResponseWriter, r *http.Request) {
+	rel, err := cleanRel(r.URL.Query().Get("path"))
+	if err != nil {
+		fsErr(w, err)
+		return
+	}
+	st, err := s.root.Stat(fsPath(rel))
+	if err != nil {
+		fsErr(w, err)
+		return
+	}
+	if !st.IsDir() {
+		jsonErr(w, 400, "not a folder")
+		return
+	}
+	fresh := r.URL.Query().Get("fresh") == "1"
+	a := s.analyzer
+	if a != nil && !fresh {
+		a.mu.RLock()
+		n := a.lookup(rel)
+		ready := a.tree != nil
+		var out folderSize
+		if n != nil {
+			out = nodeSummary(n, rel)
+			out.Source, out.ScannedAt = "index", a.lastScan
+		}
+		live := a.watch != nil && a.watchAll.Load()
+		a.mu.RUnlock()
+		if n != nil && ready {
+			writeJSON(w, map[string]any{"path": rel, "result": out, "live": live, "analyzer": true})
+			return
+		}
+	}
+	t0 := time.Now()
+	var res folderSize
+	if a != nil {
+		var err error
+		if rel == "" {
+			// whole drive: run the normal full scan in the background instead of blocking the request
+			if a.scanning.Load() {
+				jsonErr(w, http.StatusConflict, "a storage scan is already running, try again when it finishes")
+				return
+			}
+			go func() { _ = a.FullScan(context.Background()) }()
+			writeJSON(w, map[string]any{"path": rel, "started": true, "analyzer": true})
+			return
+		}
+		err = a.ScanSubtree(r.Context(), rel)
+		switch {
+		case errors.Is(err, context.Canceled):
+			return
+		case err != nil && strings.Contains(err.Error(), "already running"):
+			jsonErr(w, http.StatusConflict, "a storage scan is already running, try again when it finishes")
+			return
+		case err != nil:
+			fsErr(w, err)
+			return
+		}
+		a.mu.RLock()
+		n := a.lookup(rel)
+		if n != nil {
+			res = nodeSummary(n, rel)
+		}
+		a.mu.RUnlock()
+		if n == nil { // outside the index (e.g. a hidden folder): plain live scan
+			ln, err := s.liveFolderSize(r.Context(), rel)
+			if err != nil {
+				jsonErr(w, http.StatusConflict, err.Error())
+				return
+			}
+			res = nodeSummary(ln, rel)
+		}
+	} else {
+		n, err := s.liveFolderSize(r.Context(), rel)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			if errors.Is(err, fs.ErrNotExist) {
+				fsErr(w, err)
+				return
+			}
+			jsonErr(w, http.StatusConflict, err.Error())
+			return
+		}
+		res = nodeSummary(n, rel)
+	}
+	took := time.Since(t0).Milliseconds()
+	res.Source, res.ScannedAt, res.TookMS = "scan", time.Now(), &took
+	writeJSON(w, map[string]any{"path": rel, "result": res, "analyzer": a != nil})
+}

@@ -703,3 +703,19 @@ body.has-selbar .tasks { bottom: calc(92px + env(safe-area-inset-bottom)); }
 .img-wrap img { transition: opacity .2s; }
 .searchbar { position: relative; }
 .searchbar.searching::after { content: ""; position: absolute; right: 12px; top: 50%; width: 15px; height: 15px; margin-top: -8px; border: 2px solid var(--label3); border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+
+/* folder size sheet */
+.fsize { display: grid; gap: 16px; min-width: min(460px, 80vw); }
+.fsize-hero { text-align: center; padding: 6px 0 2px; }
+.fsize-total { font-size: 38px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+.fsize-bar { display: flex; height: 12px; border-radius: 99px; overflow: hidden; background: var(--fill); }
+.fsize-bar i { display: block; height: 100%; min-width: 2px; }
+.fsize-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 16px; }
+.fsize-legend > div { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.fsize-legend i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.fsize-legend span:first-of-type { flex: 1; }
+.fsize-largest .group-h { padding-left: 2px; }
+.fsize-num { font-variant-numeric: tabular-nums; color: var(--label2); font-size: 14px; white-space: nowrap; padding-left: 8px; }
+.fsize-when { text-align: center; }
+.fsize-scan { display: flex; align-items: center; gap: 14px; padding: 26px 6px; justify-content: center; }
+.fsize-scan .spin { width: 26px; height: 26px; border: 3px solid var(--fill); border-top-color: var(--acc); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }

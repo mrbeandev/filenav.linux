@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.4.0] - 2026-10-28
+
+### Added
+- Folder size: "Folder size" in a folder's menu (and a chart button for the current folder) shows total size, file and folder counts, a breakdown by type and the largest files. Instant from the storage index; "Rescan" re-reads just that folder. Works with the analyzer turned off too (scans the folder directly).
+- Storage: "Rescan" inside a folder offers "Rescan this folder" (only that subtree is re-read and updated in the index) or the whole drive.
+
 ## [1.3.1] - 2026-10-28
 
 ### Changed

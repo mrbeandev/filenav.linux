@@ -121,6 +121,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/media/hls", a(s.handleHLSStart))
 	m.HandleFunc("GET /api/media/hls/{id}/index.m3u8", a(s.handleHLSPlaylist))
 	m.HandleFunc("GET /api/media/hls/{id}/{seg}", a(s.handleHLSSegment))
+	m.HandleFunc("GET /api/size", a(s.handleFolderSize))
 	m.HandleFunc("POST /api/analyze/cancel", a(requireFeature(s.cfg.Analyzer, "the storage analyzer is disabled in the config", s.handleAnalyzeCancel)))
 	m.HandleFunc("POST /api/upload/init", wr(s.handleUploadInit))
 	m.HandleFunc("PUT /api/upload/{uid}", wr(s.handleUploadChunk))
