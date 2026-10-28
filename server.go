@@ -118,6 +118,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/tmdb-img", a(mv(s.handleTMDBImage)))
 	m.HandleFunc("GET /api/vtt", a(s.handleSubVTT))
 	m.HandleFunc("GET /api/media/probe", a(s.handleMediaProbe))
+	m.HandleFunc("GET /api/thumb", a(s.handleThumb))
 	m.HandleFunc("GET /api/media/hls", a(s.handleHLSStart))
 	m.HandleFunc("GET /api/media/hls/{id}/index.m3u8", a(s.handleHLSPlaylist))
 	m.HandleFunc("GET /api/media/hls/{id}/{seg}", a(s.handleHLSSegment))
@@ -282,6 +283,7 @@ func (s *Server) cleanup() {
 	s.loginLimit.GC()
 	s.shareLimit.GC()
 	s.cleanDavTemp()
+	s.pruneThumbs()
 	s.challenges.GC()
 	now := time.Now()
 	_ = s.st.Update(func(st *State) error {

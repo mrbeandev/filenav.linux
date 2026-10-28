@@ -204,7 +204,7 @@ async function load(keepSel) {
     clearTimeout(skel);
     if (seq !== loadSeq) return; // user already went elsewhere
     S.entries = d.entries; S.shares = sh.shares; S.loaded = true;
-    COL.cache.set(S.path, { t: Date.now(), entries: d.entries }); // column view shows it again as a parent column
+    COL.cache.delete(S.path); COL.cache.set(S.path, { t: Date.now(), entries: d.entries }); // column view shows it again as a parent column
 
     for (const n of [...S.sel]) if (!S.entries.some(e => e.name === n)) S.sel.delete(n);
   } catch (e) {
@@ -385,13 +385,19 @@ narrowMQ.addEventListener('change', () => { if (S.view === 'files' && S.loaded &
 // A file chosen in the last column shows a preview + details column.
 const COL = { cache: new Map(), widths: JSON.parse(localStorage.getItem('fn-colw') || '{}'), W: 240, PREVIEW_W: 340 };
 const colKey = p => p || '/';
+// Parent columns come from this cache, so opening a subfolder never refetches
+// (and never flashes) the columns to its left. A folder's list is refreshed
+// whenever it becomes the open folder again (load() always fetches S.path).
+function colCached(p) {
+  if (p === S.path && S.loaded) return S.entries;
+  return COL.cache.get(p)?.entries || null;
+}
 async function colEntries(p) {
-  if (p === S.path) return S.entries;
-  const c = COL.cache.get(p);
-  if (c && Date.now() - c.t < 15000) return c.entries;
+  const c = colCached(p);
+  if (c) return c;
   const d = await api('GET', '/api/list?path=' + encPath(p), undefined, { quiet: true });
   COL.cache.set(p, { t: Date.now(), entries: d.entries });
-  if (COL.cache.size > 60) COL.cache.delete(COL.cache.keys().next().value);
+  if (COL.cache.size > 200) COL.cache.delete(COL.cache.keys().next().value);
   return d.entries;
 }
 
@@ -400,12 +406,20 @@ function columnView() {
   const paths = [''].concat(parts.map((_, i) => parts.slice(0, i + 1).join('/')));
   // a selected file only counts if it is inside the deepest folder
   if (S.colSel && S.colSel.split('/').slice(0, -1).join('/') !== S.path) S.colSel = null;
+  // remember where each existing column was scrolled, and the strip's own scroll
+  const old = $('#main .mcols');
+  const scrolls = new Map(old ? [...old.querySelectorAll('.mcol[data-path]')].map(c => [c.dataset.path, c.querySelector('.mcol-list')?.scrollTop || 0]) : []);
+  const stripLeft = old ? old.parentNode.scrollLeft : 0;
   const strip = h('div', { class: 'mcols', tabindex: '-1' });
   const wrap = h('div', { class: 'mcols-wrap' }, strip);
   const cols = paths.map((p, i) => {
-    const col = h('div', { class: 'mcol', 'data-path': p, style: { width: (COL.widths[colKey(p)] || COL.W) + 'px' } }, h('div', { class: 'mcol-list' }, skeletonRows(5, 'mskel')));
+    const listEl = h('div', { class: 'mcol-list' });
+    const col = h('div', { class: 'mcol', 'data-path': p, style: { width: (COL.widths[colKey(p)] || COL.W) + 'px' } }, listEl);
     col.append(resizer(col, colKey(p)));
-    fillColumn(col.firstChild, p, i === paths.length - 1 ? S.colSel : paths[i + 1]);
+    const active = i === paths.length - 1 ? S.colSel : paths[i + 1];
+    const cached = colCached(p);
+    if (cached) renderColumn(listEl, p, cached, active, scrolls.get(p));
+    else { listEl.append(skeletonRows(5, 'mskel')); fillColumn(listEl, p, active); }
     return col;
   });
   strip.append(...cols);
@@ -418,8 +432,8 @@ function columnView() {
     }
   }
   strip.append(h('div', { class: 'mcol-end' }));
-  // keep the newest column in view
-  requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; });
+  // keep the newest column in view (starting from where the strip was, so it doesn't jump)
+  requestAnimationFrame(() => { wrap.style.scrollBehavior = 'auto'; wrap.scrollLeft = stripLeft; wrap.style.scrollBehavior = ''; wrap.scrollLeft = wrap.scrollWidth; });
   return wrap;
 }
 
@@ -427,6 +441,10 @@ async function fillColumn(listEl, p, activePath) {
   let entries;
   try { entries = await colEntries(p); }
   catch (e) { listEl.replaceChildren(h('div', { class: 'mcol-msg' }, e.message)); return; }
+  renderColumn(listEl, p, entries, activePath);
+}
+
+function renderColumn(listEl, p, entries, activePath, scrollTop) {
   const list = sortEntries(entries);
   if (!list.length) { listEl.replaceChildren(h('div', { class: 'mcol-msg' }, 'Empty folder')); return; }
   const files = list.filter(x => !x.dir).map(x => ({ e: x, full: joinPath(p, x.name) }));
@@ -451,8 +469,11 @@ async function fillColumn(listEl, p, activePath) {
       e.dir ? h('span', { class: 'acc-spin', 'aria-hidden': 'true' }) : null);
     return it;
   }));
-  const on = listEl.querySelector('.mrow.on');
-  if (on) on.scrollIntoView({ block: 'nearest' });
+  if (scrollTop != null) requestAnimationFrame(() => { listEl.scrollTop = scrollTop; });
+  else requestAnimationFrame(() => {
+    const on = listEl.querySelector('.mrow.on');
+    if (on) on.scrollIntoView({ block: 'nearest' });
+  });
 }
 
 // drag the right edge of a column to resize it (remembered per folder)
@@ -478,9 +499,25 @@ function resizer(col, key) {
 function filePreview(e, full) {
   const kind = viewKind(e.name);
   const raw = dlURL(full, true);
+  const files = sortEntries(S.entries).filter(x => !x.dir).map(x => ({ e: x, full: joinPath(S.path, x.name) }));
+  const open = () => openEntry(e, full, files);
+  // cached server-side thumbnail (compressed image / first video frame); the
+  // version suffix makes the browser cache follow file changes
+  const thumb = '/api/thumb?path=' + encPath(full) + '&v=' + e.size + '-' + new Date(e.mtime).getTime();
   let media = null;
-  if (kind === 'img') media = h('img', { src: raw, alt: e.name, loading: 'lazy', onerror: ev => ev.target.replaceWith(bigIcon()) });
-  else if (kind === 'vid') media = h('video', { src: raw, controls: true, preload: 'metadata', playsinline: true });
+  if (kind === 'img' || kind === 'imgdec' || kind === 'vid') {
+    const img = h('img', { alt: e.name, decoding: 'async', class: 'mprev-thumb' });
+    const box = h('button', { class: 'mprev-pic' + (kind === 'vid' ? ' is-video' : ''), title: kind === 'vid' ? 'Play' : 'Open', onclick: open },
+      h('span', { class: 'spin' }), img, kind === 'vid' ? h('span', { class: 'mprev-play', html: icon('play') }) : null);
+    img.onload = () => box.classList.add('ready');
+    img.onerror = () => {
+      // no thumbnail (e.g. no ffmpeg): small browser-friendly images load directly
+      if (kind === 'img' && img.src.includes('/api/thumb') && e.size < 15 << 20) { img.src = raw; return; }
+      box.replaceWith(Object.assign(bigIcon(), { onclick: open }));
+    };
+    img.src = thumb;
+    media = box;
+  }
   else if (kind === 'aud') media = h('audio', { src: raw, controls: true, preload: 'none' });
   else if (kind === 'pdf') media = h('iframe', { src: raw, title: e.name });
   else if ((kind === 'text' || kind === 'md') && e.size < 512 << 10) {
@@ -490,17 +527,16 @@ function filePreview(e, full) {
       .catch(() => media.replaceWith(bigIcon()));
   }
   function bigIcon() { const t = fileThumb(e.name, false); t.classList.add('big'); return t; }
-  const files = sortEntries(S.entries).filter(x => !x.dir).map(x => ({ e: x, full: joinPath(S.path, x.name) }));
   const kv = (k, v) => v ? h('div', { class: 'kv' }, h('span', {}, k), h('b', {}, v)) : null;
   return h('div', { class: 'mprev' },
-    h('div', { class: 'mprev-media' + (media && kind !== 'text' && kind !== 'md' ? ' ' + kind : '') }, media || bigIcon()),
+    h('div', { class: 'mprev-media' + (media ? ' has-' + kind : '') }, media || bigIcon()),
     h('div', { class: 'mprev-name' }, e.name),
     h('div', { class: 'mprev-kv' },
       kv('Type', typeLabel(e.name, false)), kv('Size', fmtSize(e.size) + (e.size >= 1024 ? ` (${e.size.toLocaleString()} bytes)` : '')),
       kv('Modified', e.mtime ? new Date(e.mtime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''),
       kv('Where', '/' + full.split('/').slice(0, -1).join('/'))),
     h('div', { class: 'mprev-actions' },
-      h('button', { class: 'btn primary', onclick: () => openEntry(e, full, files), html: icon(kind === 'text' || kind === 'md' ? 'edit' : 'eye') + '<span>Open</span>' }),
+      h('button', { class: 'btn primary', onclick: open, html: icon(kind === 'text' || kind === 'md' ? 'edit' : kind === 'vid' ? 'play' : 'eye') + '<span>' + (kind === 'vid' ? 'Play' : 'Open') + '</span>' }),
       h('a', { class: 'btn', href: dlURL(full), html: icon('download') + '<span>Download</span>' }),
       h('button', { class: 'btn ghost', title: 'More', 'aria-label': 'More actions', html: icon('more'), onclick: ev => { ev.stopPropagation(); contextMenu(ev, e, full); } })));
 }

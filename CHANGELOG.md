@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.6.0] - 2026-10-28
+
+### Added
+- Column view previews: images and videos show a thumbnail (images compressed to at most 640 px, videos their first frame, taken 1 s in to skip black fade-ins). Thumbnails are made on first view with ffmpeg at low priority, one at a time, and cached in `<data>/thumbs` (keyed by path, size and modification time, so edited files get a fresh one; capped at 300 MB, least recently used removed first). Without ffmpeg, JPEG/PNG/GIF thumbnails are made in Go. Click the thumbnail to open the image or play the video.
+
+### Fixed
+- Column view sometimes reloaded every column from the left after opening a folder: the folder cache expired after 15 s. Folders now stay cached until you open them again, columns keep their scroll position, and only the newly opened folder is fetched.
+- Column view: the file-type icon in the preview was not centred.
+
 ## [1.5.1] - 2026-10-28
 
 ### Fixed
