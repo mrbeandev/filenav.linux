@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.5.0] - 2026-10-28
+
+### Added
+- Each tab (Files, Movies, Storage, Shared Links, Settings) remembers where you left it, including the scroll position, for the browser session. Tapping the tab you're already on goes to its top level.
+
+- File table: on wider screens the file list is a table with Name, Size, Type and Date Modified columns. Click a column heading to sort (Type sorting is new); the header stays pinned while scrolling. A List / Table switch sits next to the item count and is remembered, as is the sort order. Phones keep the compact list.
+- Column view (desktop): a third layout next to List and Table. Each opened folder adds a column to the right showing names only; choosing a file adds a preview + details column (image, video, audio, PDF or text preview; type, size, modified, location; Open, Download, more). Columns have a small fixed width, can be resized by dragging their edge (double-click resets; widths are remembered), and the strip scrolls sideways, keeping the newest column in view. Clicking an item in an earlier column jumps back. Double-click a file to open it.
+
+### Changed
+- Storage: on wide screens (1180 px and up) the overview card and the "By size" folder list sit side by side; Largest files stays full width below. Narrower screens stack them as before.
+- Shared Links and Settings are now full pages (like Files and Storage) instead of pop-ups, with their own address (`#shares`, `#settings`, `#settings/movies`), so browser back/forward works. Shared links are grouped into Active and Expired, shown as file-style rows with Copy, Open and a menu (rclone config, Show in Files, Revoke).
+
+- Storage card: the type breakdown is now a table, one row per type with its colour, a bar, the size and its share of used space, under column headings. Free space is shown separately. Replaces the legend where sizes sat far from their labels.
+
+### Fixed
+- Test fix: TestFolderSize could fail intermittently when the analyzer indexed a file between its creation and write.
+- Folder size sheet: long file names are cut off with "…" instead of widening the sheet and hiding the total.
+
 ## [1.4.0] - 2026-10-28
 
 ### Added

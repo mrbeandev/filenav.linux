@@ -19,6 +19,7 @@ async function showMovies(sub) {
   finally { clearTimeout(ld); }
   if (S.view !== 'movies') return;
   MV.data = d;
+  if (!polling) setTimeout(restoreScroll, 0);
   if (sub && sub.startsWith('m/')) return renderMovie(d, decodeURIComponent(sub.slice(2)));
   if (sub === 'review') return renderReview(d);
   if (sub === 'unknown') return renderUnknown(d);

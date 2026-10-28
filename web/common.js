@@ -62,6 +62,11 @@ const P = {
   disk: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 14h.01M10 14h.01"/>',
   sort: '<path d="M3 6h18M6 12h12M10 18h4"/>',
   right: '<path d="m9 18 6-6-6-6"/>',
+  rows: '<path d="M3 6h18M3 12h18M3 18h18"/>',
+  columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
+  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>',
+  up: '<path d="m18 15-6-6-6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
   wrap: '<path d="M3 6h18M3 12h15a3 3 0 1 1 0 6h-4M3 18h7"/><path d="m16 16-2 2 2 2"/>',
   logo: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor" fill-opacity=".2"/><path d="m10 13 2-2 2 2M12 11v5"/>',
 };
@@ -80,6 +85,7 @@ const EXT = {
   arc: 'zip tar gz tgz bz2 xz 7z rar zst iso deb rpm apk dmg',
   code: 'js mjs cjs ts mts cts tsx jsx json go py rs c h cpp hpp java kt rb php sh bash zsh yml yaml toml ini conf cfg xml html htm css scss sql lua pl swift dockerfile makefile env',
   doc: 'txt md pdf doc docx odt rtf csv xls xlsx ods ppt pptx odp log epub',
+  // (psd, xmind etc. fall back to typeLabel's extension label)
 };
 const extOf = n => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : n.toLowerCase(); };
 function kindOf(name, isDir) {
@@ -147,6 +153,23 @@ function fmtDate(s) {
   const sameDay = d.toDateString() === now.toDateString();
   return sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString([], { year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric', month: 'short', day: 'numeric' });
+}
+// full date for the table: "26 Apr 2024, 07:20"
+function fmtDateFull(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (d.getFullYear() < 1971) return '';
+  return d.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) + ', ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+// human type label: Folder, Image, Video… or "PDF document"-style when useful
+const KIND_LABEL = { dir: 'Folder', img: 'Image', vid: 'Video', aud: 'Audio', arc: 'Archive', code: 'Code', doc: 'Document', file: 'File' };
+function typeLabel(name, isDir) {
+  if (isDir) return 'Folder';
+  const k = kindOf(name, false), e = extOf(name);
+  const special = { pdf: 'PDF', psd: 'Photoshop', md: 'Markdown', txt: 'Text', csv: 'CSV', json: 'JSON', xlsx: 'Spreadsheet', xls: 'Spreadsheet', ods: 'Spreadsheet', docx: 'Word', doc: 'Word', pptx: 'Slides', ppt: 'Slides', svg: 'SVG image', iso: 'Disk image' };
+  if (special[e]) return special[e];
+  if (k !== 'file') return KIND_LABEL[k];
+  return e && e !== name.toLowerCase() && e.length <= 6 ? e.toUpperCase() + ' file' : 'File';
 }
 function fmtDuration(sec) {
   if (!isFinite(sec) || sec < 0) return '';

@@ -360,16 +360,18 @@ func TestFolderSize(t *testing.T) {
 		t.Run(fmt.Sprintf("analyzer=%v", withAnalyzer), func(t *testing.T) {
 			var srv *Server
 			ts, root := newTestServerS(t, func(c *Config) { c.Analyzer = withAnalyzer }, &srv)
-			if withAnalyzer {
-				ctx, cancel := context.WithCancel(context.Background())
-				t.Cleanup(cancel)
-				go srv.analyzer.Run(ctx)
-			}
+			// write the files before the analyzer starts, so its first scan can't
+			// catch a file between create and write
 			os.MkdirAll(filepath.Join(root, "a", "b", "c"), 0o755)
 			os.WriteFile(filepath.Join(root, "a", "one.mp4"), make([]byte, 3000), 0o644)
 			os.WriteFile(filepath.Join(root, "a", "b", "two.jpg"), make([]byte, 2000), 0o644)
 			os.WriteFile(filepath.Join(root, "a", "b", "c", "three.txt"), make([]byte, 1000), 0o644)
 			os.WriteFile(filepath.Join(root, "other.bin"), make([]byte, 50000), 0o644)
+			if withAnalyzer {
+				ctx, cancel := context.WithCancel(context.Background())
+				t.Cleanup(cancel)
+				go srv.analyzer.Run(ctx)
+			}
 			c := client(t)
 			do(t, c, "POST", ts.URL+"/api/login", map[string]string{"passcode": "test1234"})
 			if withAnalyzer { // wait for the first index
