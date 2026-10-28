@@ -693,6 +693,7 @@ body.has-selbar .uploads { bottom: 86px; }
 .skel-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; min-height: 56px; }
 .skel-row + .skel-row { border-top: .5px solid var(--sep, rgba(127,127,127,.2)); }
 .skel-row i { display: block; border-radius: 6px; background: linear-gradient(90deg, var(--fill) 0, color-mix(in srgb, var(--fill) 40%, var(--label3)) 50%, var(--fill) 100%); background-size: 800px 100%; animation: shimmer 1.3s linear infinite; }
+.skel-table i { display: block; border-radius: 6px; background: linear-gradient(90deg, var(--fill) 0, color-mix(in srgb, var(--fill) 40%, var(--label3)) 50%, var(--fill) 100%); background-size: 800px 100%; animation: shimmer 1.3s linear infinite; }
 .skel-ic { width: 32px; height: 32px; border-radius: 8px !important; flex: none; }
 .skel-tx { height: 12px; }
 .skel-block { border-radius: 12px; background: linear-gradient(90deg, var(--fill) 0, color-mix(in srgb, var(--fill) 40%, var(--label3)) 50%, var(--fill) 100%); background-size: 800px 100%; animation: shimmer 1.3s linear infinite; }
@@ -863,3 +864,12 @@ body.has-selbar .tasks { bottom: calc(92px + env(safe-area-inset-bottom)); }
   .stor-bysize { max-height: 520px; overflow-y: auto; }
   .stor-col-h { display: flex; }
 }
+
+/* loading placeholders shaped like the active layout */
+.skel-list.mskel .skel-row { min-height: 32px; padding: 6px 8px; border-top: 0; gap: 8px; }
+.skel-list.mskel .skel-ic { width: 22px; height: 22px; border-radius: 5px; }
+.skel-table td .skel-tx, .skel-table td .skel-ic { display: block; }
+.skel-table .nm .skel-ic { width: 26px; height: 26px; border-radius: 6px; flex: none; }
+.skel-table td .skel-tx { height: 10px; }
+.skel-table td.c-size .skel-tx { margin-left: auto; }
+.skel-table th button { cursor: default; }

@@ -204,6 +204,7 @@ async function load(keepSel) {
     clearTimeout(skel);
     if (seq !== loadSeq) return; // user already went elsewhere
     S.entries = d.entries; S.shares = sh.shares; S.loaded = true;
+    COL.cache.set(S.path, { t: Date.now(), entries: d.entries }); // column view shows it again as a parent column
 
     for (const n of [...S.sel]) if (!S.entries.some(e => e.name === n)) S.sel.delete(n);
   } catch (e) {
@@ -223,8 +224,40 @@ function renderLoading() {
   const parts = S.path ? S.path.split('/') : [];
   const title = parts.length ? parts[parts.length - 1] : 'Files';
   setNav(title, parts.length ? (parts.length > 1 ? parts[parts.length - 2] : 'Files') : null, fileActions());
+  const wide = !narrowMQ.matches;
+  // column view: keep the columns on screen, drop the ones past the new folder's
+  // parent and show a loading column for the folder being opened
+  const strip = $('#main .mcols');
+  if (wide && S.layout === 'columns' && strip) {
+    const parent = parts.slice(0, -1).join('/');
+    const cols = [...strip.querySelectorAll('.mcol')];
+    const pi = cols.findIndex(c => c.dataset.path === parent);
+    if (pi >= 0) {
+      cols.slice(pi + 1).forEach(c => c.remove());
+      const col = h('div', { class: 'mcol mcol-loading', 'data-path': S.path, style: { width: (COL.widths[colKey(S.path)] || COL.W) + 'px' } },
+        h('div', { class: 'mcol-list' }, skeletonRows(6, 'mskel')));
+      strip.querySelector('.mcol-end').before(col);
+      const t = $('#main .large-title'); if (t) t.textContent = title;
+      const sub = $('#main .list-tools .subtitle'); if (sub) sub.textContent = 'Loading…';
+      renderCrumbs();
+      const wrap = strip.parentNode; wrap.scrollLeft = wrap.scrollWidth;
+      return;
+    }
+  }
+  let body = skeletonRows(8, 'group');
+  if (wide && S.layout === 'columns') {
+    body = h('div', { class: 'mcols-wrap' }, h('div', { class: 'mcols' },
+      h('div', { class: 'mcol', style: { width: COL.W + 'px' } }, h('div', { class: 'mcol-list' }, skeletonRows(6, 'mskel'))), h('div', { class: 'mcol-end' })));
+  } else if (wide && S.layout === 'table') {
+    const cell = w => h('td', {}, h('i', { class: 'skel-tx', style: { width: w } }));
+    body = h('div', { class: 'ftable-wrap', 'aria-busy': 'true', 'aria-label': 'Loading' }, h('table', { class: 'ftable skel-table' },
+      h('thead', {}, h('tr', {}, h('th', { class: 'c-sel' }), ...[['c-name', 'Name'], ['c-size', 'Size'], ['c-type', 'Type'], ['c-date', 'Date Modified']].map(([c, l]) => h('th', { class: c }, h('button', { disabled: true }, l))), h('th', { class: 'c-more' }))),
+      h('tbody', {}, Array.from({ length: 8 }, (_, i) => h('tr', {},
+        h('td', { class: 'c-sel' }), h('td', { class: 'c-name' }, h('div', { class: 'nm' }, h('i', { class: 'skel-ic' }), h('i', { class: 'skel-tx', style: { width: (40 + (i * 37) % 45) + '%' } }))),
+        cell('60%'), cell('55%'), cell('70%'), h('td', { class: 'c-more' }))))));
+  }
   setMain(h('nav', { class: 'crumbs', id: 'crumbs' }), h('h1', { class: 'large-title' }, title),
-    h('p', { class: 'subtitle' }, 'Loading…'), skeletonRows(8, 'group'));
+    h('div', { class: 'list-tools' }, h('p', { class: 'subtitle' }, 'Loading…'), wide ? layoutToggle() : null), body);
   renderCrumbs();
 }
 
@@ -370,7 +403,7 @@ function columnView() {
   const strip = h('div', { class: 'mcols', tabindex: '-1' });
   const wrap = h('div', { class: 'mcols-wrap' }, strip);
   const cols = paths.map((p, i) => {
-    const col = h('div', { class: 'mcol', style: { width: (COL.widths[colKey(p)] || COL.W) + 'px' } }, h('div', { class: 'mcol-list' }, skeletonRows(5)));
+    const col = h('div', { class: 'mcol', 'data-path': p, style: { width: (COL.widths[colKey(p)] || COL.W) + 'px' } }, h('div', { class: 'mcol-list' }, skeletonRows(5, 'mskel')));
     col.append(resizer(col, colKey(p)));
     fillColumn(col.firstChild, p, i === paths.length - 1 ? S.colSel : paths[i + 1]);
     return col;

@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.5.1] - 2026-10-28
+
+### Fixed
+- Loading placeholders now match the active layout. In column view, opening a folder keeps the existing columns and shows a loading column only for the folder being opened (previously the whole view switched to list-style placeholder rows). Table view shows placeholder table rows with the column headings; list view is unchanged.
+
 ## [1.5.0] - 2026-10-28
 
 ### Added
