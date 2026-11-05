@@ -218,7 +218,29 @@ function renderMovie(d, dir) {
           h('button', { class: 'btn', onclick: e => busy(e.currentTarget, async () => {
             try { const r = await api('POST', '/api/movies/subs', { dir: m.dir }); toast(r.status === 'ok' ? 'Subtitle downloaded' : r.status === 'pending' ? 'Not available right now (limit reached?)' : 'No subtitle found'); await showMovies('m/' + encodeURIComponent(m.dir)); }
             catch (x) { toast(x.message, true); }
-          }) }, 'Fetch')))));
+          }) }, 'Fetch')),
+        publicRow(d, m))));
+}
+
+// show/hide this movie in the public movie list (Settings → Movies → Public API)
+function publicRow(d, m) {
+  const sw = h('input', { type: 'checkbox', checked: !m.hidden_public, 'aria-label': 'Show in public list' });
+  const sub = h('span', { class: 't2' });
+  const ic = h('span', { class: 'thumb', html: icon('eye') });
+  const draw = () => {
+    sub.textContent = !d.public_list ? (sw.checked ? 'Will be listed when the public list is on (Settings → Movies)' : 'Hidden from the public list') : sw.checked ? 'Listed in your public movie API' : 'Hidden from your public movie API';
+    ic.className = 'thumb ' + (sw.checked ? 'img' : 'file');
+    ic.innerHTML = icon(sw.checked ? 'eye' : 'eyeOff');
+  };
+  draw();
+  sw.onchange = async () => {
+    sw.disabled = true;
+    try { const r = await api('POST', '/api/movies/visibility', { dir: m.dir, public: sw.checked }); sw.checked = r.public; m.hidden_public = !r.public; draw(); toast(r.public ? 'Shown in public list' : 'Hidden from public list'); }
+    catch (x) { sw.checked = !sw.checked; toast(x.message, true); }
+    finally { sw.disabled = false; }
+  };
+  return h('label', { class: 'cell' }, ic,
+    h('div', { class: 'txt' }, h('span', { class: 't1' }, 'Show in public list'), sub), h('span', { class: 'chk' }, sw));
 }
 
 async function playTrailer(m, btn) {

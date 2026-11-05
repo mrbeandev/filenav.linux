@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org).
 
+## [1.7.0] - 2026-10-28
+
+### Added
+- Public movie list API: `GET /api/public/movies` returns your library's metadata as JSON (title, year, tagline, plot, runtime, rating, genres, director, cast with photos, poster/backdrop URLs from TMDB, subtitle languages, format, size, date added, TMDB/IMDb links) for showing it on another website. No login, CORS open, cached for 5 minutes. Never includes video/subtitle links or folder paths. Supports `sort`, `order`, `genre`, `q` and `limit`. Off by default: Settings → Movies → Public movie list, which also shows the address with Copy and View buttons.
+- Per-movie "Show in public list" switch on each movie page.
+
 ## [1.6.0] - 2026-10-28
 
 ### Added

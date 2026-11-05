@@ -59,6 +59,7 @@ type MovieMeta struct {
 	Subtitles []string  `json:"subtitles,omitempty"`     // file names inside the folder
 	SubStatus string    `json:"sub_status,omitempty"`    // "", "ok", "pending", "none"
 	Added     time.Time `json:"added"`
+	Hidden    bool      `json:"hidden_public,omitempty"` // left out of the public movie list
 }
 
 type Actor struct {
@@ -806,6 +807,7 @@ func (s *Server) handleMovies(w http.ResponseWriter, r *http.Request) {
 		"configured":   set.TMDBKey != "",
 		"subs_on":      set.OSKey != "" && set.OSUser != "",
 		"subs_pending": pending,
+		"public_list":  set.PublicList,
 	})
 }
 
@@ -980,13 +982,51 @@ func (s *Server) handleMovieSubs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"status": meta.SubStatus, "subtitles": meta.Subtitles})
 }
 
+// handleMovieVisibility shows or hides one movie in the public movie list.
+func (s *Server) handleMovieVisibility(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Dir    string `json:"dir"`
+		Public bool   `json:"public"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	dir, err := cleanRel(req.Dir)
+	if err != nil || dir == "" {
+		jsonErr(w, 400, "invalid folder")
+		return
+	}
+	l := s.movies
+	if lib := l.settings().MoviesDir; dir != lib && !strings.HasPrefix(dir, lib+"/") {
+		jsonErr(w, 400, "not in the movies folder")
+		return
+	}
+	b, err := s.root.ReadFile(path.Join(dir, "movie.json"))
+	if err != nil {
+		jsonErr(w, 404, "not a library movie")
+		return
+	}
+	var meta MovieMeta
+	if json.Unmarshal(b, &meta) != nil {
+		jsonErr(w, 500, "bad movie.json")
+		return
+	}
+	meta.Hidden = !req.Public
+	if err := l.writeMeta(dir, meta); err != nil {
+		fsErr(w, err)
+		return
+	}
+	l.loadLibrary()
+	writeJSON(w, map[string]any{"public": !meta.Hidden})
+}
+
 // handleMediaSettings reads/writes the movie-library credentials. Secrets
 // are never returned; only whether they are set.
 func (s *Server) handleMediaSettingsGet(w http.ResponseWriter, r *http.Request) {
 	m := s.movies.settings()
 	writeJSON(w, map[string]any{
 		"tmdb_key_set": m.TMDBKey != "", "os_key_set": m.OSKey != "", "os_user": m.OSUser, "os_pass_set": m.OSPass != "",
-		"movies_dir": m.MoviesDir, "sub_langs": m.SubLangs,
+		"movies_dir": m.MoviesDir, "sub_langs": m.SubLangs, "public_list": m.PublicList,
 	})
 }
 
@@ -998,6 +1038,7 @@ func (s *Server) handleMediaSettingsPut(w http.ResponseWriter, r *http.Request) 
 		OSPass    *string `json:"os_pass"`
 		MoviesDir *string `json:"movies_dir"`
 		SubLangs  *string `json:"sub_langs"`
+		Public    *bool   `json:"public_list"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -1033,6 +1074,9 @@ func (s *Server) handleMediaSettingsPut(w http.ResponseWriter, r *http.Request) 
 		}
 		if req.SubLangs != nil {
 			m.SubLangs = strings.ToLower(trim(req.SubLangs))
+		}
+		if req.Public != nil {
+			m.PublicList = *req.Public
 		}
 		return nil
 	})

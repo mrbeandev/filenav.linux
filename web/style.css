@@ -890,3 +890,16 @@ body.has-selbar .tasks { bottom: calc(92px + env(safe-area-inset-bottom)); }
 .mprev-pic.ready .mprev-play { opacity: 1; }
 .mprev-pic:hover .mprev-play { transform: scale(1.08); }
 .mprev-actions .btn.ghost { margin-left: auto; }
+.pub-url { padding: 4px 16px 12px; display: grid; gap: 6px; min-width: 0; }
+.pub-url .rc-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.pub-url .rc-code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 7px 10px; }
+.pub-url .btn.sm { min-height: 30px; padding: 4px 10px; flex: none; }
+
+/* iOS switch anywhere a .chk wraps a checkbox (movie page rows etc.) */
+.cell .chk { display: inline-flex; margin-left: auto; flex: none; }
+.cell .chk input { appearance: none; flex: none; width: 51px; height: 31px; border-radius: 99px; background: var(--fill2); position: relative; cursor: pointer; transition: background .2s; margin: 0; }
+.cell .chk input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,.15), 0 1px 1px rgba(0,0,0,.16); transition: transform .2s; }
+.cell .chk input:checked { background: var(--green); }
+.cell .chk input:checked::after { transform: translateX(20px); }
+.cell .chk input:disabled { opacity: .5; }
+label.cell { cursor: pointer; }

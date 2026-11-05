@@ -132,6 +132,40 @@ Use another config file with `--config /path/config.yml`. `filenav config` print
 
 **Upgrading:** `filenav update` (use `sudo filenav update` if the binary is in a root-owned directory such as `/usr/local/bin`).
 
+## Public movie list API
+
+Show your movie library on another website. Turn it on in **Settings → Movies → Public movie list**; it is off by default. Each movie's page has a **Show in public list** switch to leave individual films out.
+
+```
+GET https://files.example.com/api/public/movies
+```
+
+No login is needed, and any website may fetch it (CORS `*`). Only metadata is returned: no video or subtitle links and no folder paths. Images are TMDB CDN URLs.
+
+| Option | Values |
+|---|---|
+| `sort` | `added` (default), `title`, `year`, `rating` |
+| `order` | `asc`, `desc` |
+| `genre` | e.g. `Drama` |
+| `q` | title search |
+| `limit` | max movies returned |
+
+```json
+{
+  "title": "filenav", "count": 42, "generated_at": "2026-10-28T14:00:00Z",
+  "movies": [{
+    "id": 329865, "imdb_id": "tt2543164", "title": "Arrival", "year": 2016,
+    "tagline": "Why are they here?", "overview": "…", "runtime_minutes": 116, "rating": 7.6,
+    "genres": ["Drama", "Science Fiction"], "director": "Denis Villeneuve",
+    "cast": [{ "name": "Amy Adams", "character": "Louise Banks", "photo": "https://image.tmdb.org/t/p/w185/…" }],
+    "poster": "https://image.tmdb.org/t/p/w500/…", "poster_small": "…", "backdrop": "…",
+    "subtitle_languages": ["en"], "format": "mkv", "size_bytes": 2100000000,
+    "added": "2026-10-23T10:02:00+05:30",
+    "tmdb_url": "https://www.themoviedb.org/movie/329865", "imdb_url": "https://www.imdb.com/title/tt2543164/"
+  }]
+}
+```
+
 ## HTTPS / domain
 
 Passkeys need HTTPS (or `localhost`). The simplest way to get HTTPS is [Caddy](https://caddyserver.com), which fetches certificates automatically ([`deploy/Caddyfile`](deploy/Caddyfile)):

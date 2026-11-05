@@ -1258,6 +1258,21 @@ function movieSettings() {
   const dir = h('input', { class: 'input', placeholder: 'movies', autocapitalize: 'off', 'aria-label': 'Movies folder' });
   const langs = h('input', { class: 'input', placeholder: 'en', autocapitalize: 'off', 'aria-label': 'Subtitle language', maxlength: 8 });
   const tmdbState = h('span', { class: 'pill-s' }), osState = h('span', { class: 'pill-s' });
+  // public movie list (for showing the library on another website)
+  const pubURL = location.origin + '/api/public/movies';
+  const pub = h('input', { type: 'checkbox', 'aria-label': 'Public movie list' });
+  const pubBox = h('div', { class: 'rc-block pub-url hidden' },
+    h('div', { class: 'rc-row' }, h('code', { class: 'rc-code' }, pubURL),
+      h('button', { class: 'btn sm', type: 'button', onclick: () => copyText(pubURL), html: icon('copy') + '<span>Copy</span>' }),
+      h('a', { class: 'btn sm', href: pubURL, target: '_blank', rel: 'noopener', html: icon('eye') + '<span>View</span>' })),
+    h('small', { class: 'dim' }, 'Options: ?sort=added|title|year|rating, &order=asc|desc, &genre=Drama, &q=search, &limit=20'));
+  const showPub = on => pubBox.classList.toggle('hidden', !on);
+  pub.onchange = async () => {
+    pub.disabled = true;
+    try { const d = await api('PUT', '/api/movies/settings', { public_list: pub.checked }); pub.checked = !!d.public_list; showPub(pub.checked); toast(pub.checked ? 'Public list on' : 'Public list off'); }
+    catch (e) { pub.checked = !pub.checked; toast(e.message, true); }
+    finally { pub.disabled = false; }
+  };
   const results = h('div', { class: 'sg-results hidden' });
   const setState = (el, ok) => { el.className = 'pill-s ' + (ok ? 'ok' : ''); el.textContent = ok ? 'Saved' : 'Not set'; };
   const fill = d => {
@@ -1266,8 +1281,9 @@ function movieSettings() {
     osk.input.placeholder = d.os_key_set ? '••••••••  saved' : 'Paste API key';
     osp.input.placeholder = d.os_pass_set ? '••••••••  saved' : 'Password';
     osu.value = d.os_user || ''; dir.value = d.movies_dir || 'movies'; langs.value = d.sub_langs || 'en';
+    pub.checked = !!d.public_list; showPub(pub.checked);
   };
-  const fields = [tmdb.input, osk.input, osp.input, osu, dir, langs];
+  const fields = [tmdb.input, osk.input, osp.input, osu, dir, langs, pub];
   fields.forEach(f => { f.disabled = true; });
   api('GET', '/api/movies/settings').then(fill).catch(e => toast(e.message, true)).finally(() => fields.forEach(f => { f.disabled = false; }));
   const save = async (quiet) => {
@@ -1309,7 +1325,9 @@ function movieSettings() {
       h('span', {}, 'Free accounts get about 20 subtitles a day; the rest are fetched on later scans. ', h('a', { href: 'https://www.opensubtitles.com/consumers', target: '_blank', rel: 'noopener' }, 'Get a key'))),
     grp('Library', [srow('Movies folder', dir, { cls: 'inline' }), srow('Subtitle language', langs, { cls: 'inline' })], 'Folder inside your files. Language as a 2-letter code (en, es, fr…).'),
     h('div', { class: 'sg-actions' }, h('button', { class: 'btn primary', onclick: ev => busy(ev.currentTarget, () => save(false)) }, 'Save'), testBtn),
-    results);
+    results,
+    grp('Public API', [h('label', { class: 'sg-row' }, h('div', { class: 'sg-l' }, h('span', {}, 'Public movie list'), h('small', {}, 'Anyone with the address can read your movie titles and details')), h('span', { class: 'chk' }, pub)), pubBox],
+      'JSON for showing your library on another site: titles, plot, ratings, genres, cast, posters. No video links or file paths.'));
 }
 
 function guessDevice() {

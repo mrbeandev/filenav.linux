@@ -105,6 +105,7 @@ func (s *Server) routes() {
 		return requireFeature(s.cfg.Movies, "the movie library is disabled in the config", h)
 	}
 	m.HandleFunc("GET /api/movies", a(mv(s.handleMovies)))
+	m.HandleFunc("GET /api/public/movies", mv(s.handlePublicMovies)) // no login; off unless enabled in Settings
 	m.HandleFunc("POST /api/movies/scan", wr(mv(s.handleMoviesScan)))
 	m.HandleFunc("POST /api/movies/apply", wr(mv(s.handleMoviesApply)))
 	m.HandleFunc("POST /api/movies/cancel", a(mv(s.handleMoviesCancel)))
@@ -112,6 +113,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/movies/trailer", a(mv(s.handleMovieTrailer)))
 	m.HandleFunc("POST /api/movies/match", a(mv(s.handleMoviesMatch)))
 	m.HandleFunc("POST /api/movies/subs", wr(mv(s.handleMovieSubs)))
+	m.HandleFunc("POST /api/movies/visibility", wr(mv(s.handleMovieVisibility)))
 	m.HandleFunc("GET /api/movies/settings", a(mv(s.handleMediaSettingsGet)))
 	m.HandleFunc("PUT /api/movies/settings", a(mv(s.handleMediaSettingsPut)))
 	m.HandleFunc("POST /api/movies/test", a(mv(s.handleMediaTest)))

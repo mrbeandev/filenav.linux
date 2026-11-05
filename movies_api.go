@@ -49,6 +49,7 @@ type MediaSettings struct {
 	OSBaseURL  string    `json:"os_base_url,omitempty"` // VIP accounts get another host
 	MoviesDir  string    `json:"movies_dir,omitempty"`  // root-relative
 	SubLangs   string    `json:"sub_langs,omitempty"`   // e.g. "en"
+	PublicList bool      `json:"public_list,omitempty"` // GET /api/public/movies without login
 }
 
 // mediaHTTP talks to TMDB/OpenSubtitles. Some networks advertise IPv6 but
